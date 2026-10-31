@@ -325,6 +325,8 @@ mod a11y_tests;
 #[path = "runtime/paint_probe.rs"]
 mod paint_probe;
 pub use elements::{ElementInfo, Pick, Picked, Pose};
+#[path = "runtime/paint/caret_blink.rs"]
+mod caret_blink;
 #[path = "runtime/paint/cache_layer.rs"]
 mod cache_layer;
 use cache_layer::{ActiveCache, NodeCache};
@@ -605,6 +607,7 @@ pub struct Runtime<S: 'static> {
     time_scaled: bool,
     /// Shared host deadline: unscaled wake time and corresponding animation time.
     loop_wake: Option<(f64, f64)>,
+    caret_blink: caret_blink::CaretBlink,
     surface_visible: bool,
     hovered: Option<String>,
     /// Elements with `on_hover_change` that the pointer is inside.
@@ -963,6 +966,7 @@ impl<S: 'static> Runtime<S> {
             static_scale_settling: false,
             time_scaled: false,
             loop_wake: None,
+            caret_blink: Default::default(),
             surface_visible: true,
             hovered: None,
             hover_within: Vec::new(),
