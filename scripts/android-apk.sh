@@ -2,12 +2,13 @@
 # Builds a Rune example into a signed APK with cargo and the Android SDK's build tools: no
 # Gradle, no Java code (NativeActivity loads the example's cdylib).
 #
-#   scripts/android-apk.sh [example] [--install] [--release]
+#   scripts/android-apk.sh [example] [--install] [--debug]
 #
 # example defaults to android-hello; it needs an AndroidManifest.xml beside its Cargo.toml and
 # a cdylib with `android_main` (see examples/android-hello). The APK lands in
 # target/android/<example>.apk. --install also installs and starts it with adb (an emulator or
-# a phone; set ANDROID_SERIAL to pick one).
+# a phone; set ANDROID_SERIAL to pick one). It builds release: on an emulator's software GPU a
+# debug build hadn't drawn its first frame after a minute.
 #
 # Needs: rustup target aarch64-linux-android; ANDROID_HOME (platforms;android-35,
 # build-tools;35.0.0, an NDK) and a JDK for keytool/apksigner. NDK_HOME defaults to the newest
@@ -16,11 +17,11 @@ set -eu
 
 example=android-hello
 install=0
-profile=debug
+profile=release
 for arg in "$@"; do
   case "$arg" in
     --install) install=1 ;;
-    --release) profile=release ;;
+    --debug) profile=debug ;;
     -*) echo "unknown option $arg" >&2; exit 2 ;;
     *) example=$arg ;;
   esac
@@ -53,8 +54,8 @@ export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$llvm/aarch64-linux-android$ap
 export ANDROID_NDK_ROOT="$NDK_HOME"
 
 cd "$root"
-flag=
-[ "$profile" = release ] && flag=--release
+flag=--release
+[ "$profile" = debug ] && flag=
 cargo build -p "$example" --lib --target "$target" $flag
 
 lib=$(echo "$example" | tr - _)
