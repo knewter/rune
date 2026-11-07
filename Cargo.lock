@@ -142,6 +142,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "android-hello"
+version = "0.0.1"
+dependencies = [
+ "rune",
+]
+
+[[package]]
 name = "android-properties"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

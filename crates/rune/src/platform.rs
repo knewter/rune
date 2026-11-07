@@ -1,4 +1,6 @@
 pub(crate) mod accent;
+#[cfg(target_os = "android")]
+pub mod android;
 #[cfg(all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android")))]
 pub(crate) mod activation;
 #[cfg(all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android")))]

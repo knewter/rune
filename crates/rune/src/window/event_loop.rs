@@ -72,6 +72,12 @@ fn run_configured(factory: Factory, args: Args, accessory: bool) -> Result<(), S
             .with_default_menu(false)
             .with_activate_ignoring_other_apps(false);
     }
+    #[cfg(target_os = "android")]
+    {
+        use winit::platform::android::EventLoopBuilderExtAndroid;
+        let app = crate::platform::android::app().inspect_err(|_| crate::render::discard_prewarm())?;
+        builder.with_android_app(app);
+    }
     let event_loop = builder.build().inspect_err(|_| crate::render::discard_prewarm()).map_err(event_loop_error)?;
     event_loop.set_control_flow(ControlFlow::Wait);
     #[cfg(target_os = "macos")]

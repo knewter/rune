@@ -22,7 +22,7 @@ pub(crate) fn wait_ms() -> Option<f64> {
 /// Whether the machine has no core to spare: the 1-minute load average is at or above the core
 /// count. Read at most every few seconds. Always false where there's no load average.
 pub(crate) fn overloaded() -> bool {
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "android")))]
     {
         use std::{sync::Mutex, time::{Duration, Instant}};
         static CACHE: Mutex<Option<(Instant, bool)>> = Mutex::new(None);
@@ -36,7 +36,8 @@ pub(crate) fn overloaded() -> bool {
         *cache = Some((Instant::now(), busy));
         busy
     }
-    #[cfg(not(unix))]
+    // The libc crate has no getloadavg for Android.
+    #[cfg(any(not(unix), target_os = "android"))]
     { false }
 }
 
