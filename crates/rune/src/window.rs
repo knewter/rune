@@ -45,6 +45,8 @@ use platform_sync::sync_platform;
 mod shell_requests;
 mod keys;
 pub(crate) use keys::{key_base, map_key_event, map_mods};
+#[cfg(target_os = "android")]
+mod android;
 mod any_host;
 mod event_loop;
 mod events;
@@ -103,6 +105,10 @@ pub(crate) trait AnyHost {
     fn new_events(&mut self, _event_loop: &ActiveEventLoop, _cause: StartCause) {}
     fn wake_deadline(&self) -> Option<Instant> { None }
     fn resumed(&mut self, event_loop: &ActiveEventLoop);
+    /// The OS took the native window away (Android, in the background): drop the surface.
+    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {}
+    /// The OS gave a window back after `suspended`: make a new surface and redraw.
+    fn resumed_again(&mut self, _event_loop: &ActiveEventLoop) {}
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: WakeEvent);
     fn owns(&self, id: WindowId) -> bool;
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent);
@@ -236,7 +242,12 @@ impl ApplicationHandler<WakeEvent> for Windows {
         if self.factory.is_none() { self.cleanup(event_loop); }
     }
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let Some(factory) = self.factory.take() else { return };
+        let Some(factory) = self.factory.take() else {
+            // Back from `suspended` (Android): the hosts are there, their surfaces aren't.
+            for host in self.hosts.iter_mut().flatten() { host.resumed_again(event_loop); }
+            self.cleanup(event_loop);
+            return;
+        };
         let primary = event_loop.primary_monitor();
         let displays: Vec<_> = event_loop.available_monitors().map(|m| Display {
             id: Some(crate::DisplayId::from_monitor(m.clone(), is_wayland(event_loop))),
@@ -313,6 +324,9 @@ impl ApplicationHandler<WakeEvent> for Windows {
         event_loop.set_control_flow(if animating { ControlFlow::Poll }
             else { deadline.map_or(ControlFlow::Wait, ControlFlow::WaitUntil) });
     }
+    fn suspended(&mut self, event_loop: &ActiveEventLoop) {
+        for host in self.hosts.iter_mut().flatten() { host.suspended(event_loop); }
+    }
     fn exiting(&mut self, event_loop: &ActiveEventLoop) {
         // Rune didn't ask to exit, so the OS is ending the app: macOS Quit, Cmd-Q, the Dock's
         // Quit, logout. Windows close as their close button would, before the clipboard stops.
@@ -355,6 +369,9 @@ struct Host<S: 'static> {
     /// When it last hid, in `reopen::stamp` order.
     hidden_at: Option<u64>,
     release_gpu: bool,
+    /// Its window was open when the OS took the native window away (`window::android`).
+    #[cfg(target_os = "android")]
+    suspended_open: bool,
     open_at_start: bool,
     /// `App::float_on_open`: each window maps at a fixed size, then takes its own limits.
     #[cfg_attr(not(all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))), allow(dead_code))]
@@ -506,6 +523,8 @@ impl<S: 'static> Host<S> {
             _open_urls: None,
             hidden_at: None,
             release_gpu,
+            #[cfg(target_os = "android")]
+            suspended_open: false,
             open_at_start: open,
             float_on_open,
             shared,

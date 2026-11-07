@@ -173,6 +173,18 @@ impl<S: 'static> AnyHost for Host<S> {
         self.publish();
     }
 
+    #[cfg(target_os = "android")]
+    fn suspended(&mut self, event_loop: &ActiveEventLoop) {
+        self.suspend_surface(event_loop);
+        self.publish();
+    }
+
+    #[cfg(target_os = "android")]
+    fn resumed_again(&mut self, event_loop: &ActiveEventLoop) {
+        self.restore_surface(event_loop);
+        self.publish();
+    }
+
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: WakeEvent) {
         self.meter.waited();
         self.handle_user_event(event_loop, event);

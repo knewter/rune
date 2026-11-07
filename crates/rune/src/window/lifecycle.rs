@@ -318,8 +318,9 @@ impl<S: 'static> Host<S> {
             self.gpu = None;
             self.rt.text.atlas.invalidate();
             self.rt.images.invalidate();
-        } else if is_wayland(event_loop) {
-            // Wayland has no hidden toplevel: unmap by destroying, recreate on open.
+        } else if is_wayland(event_loop) || cfg!(target_os = "android") {
+            // Wayland has no hidden toplevel: unmap by destroying, recreate on open. Android's
+            // native window goes when the app leaves the screen, and its surface with it.
             self.win = None;
             self.native_handle.native.ready.store(false, Ordering::Release);
             self.native_handle.native.number.store(0, Ordering::Release);

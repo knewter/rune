@@ -202,6 +202,8 @@ pub use overlay::options::OverlaySupport;
 pub use pixels::Pixels;
 pub use platform::accent::SystemAccent;
 pub use platform::accent::system_accent;
+#[cfg(target_os = "android")]
+pub use platform::android;
 pub use platform::app_icon::set_app_icon;
 #[cfg(target_vendor = "apple")]
 pub use platform::embed;
