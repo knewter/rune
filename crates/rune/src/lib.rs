@@ -205,7 +205,7 @@ pub use platform::accent::system_accent;
 #[cfg(target_os = "android")]
 pub use platform::android;
 pub use platform::app_icon::set_app_icon;
-#[cfg(target_vendor = "apple")]
+#[cfg(any(target_vendor = "apple", target_os = "android"))]
 pub use platform::embed;
 #[cfg(target_os = "macos")]
 #[doc(hidden)]
