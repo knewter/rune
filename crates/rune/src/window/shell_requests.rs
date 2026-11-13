@@ -16,8 +16,11 @@ impl<S: 'static> Host<S> {
         let Some(w) = self.win.as_mut().filter(|w| w.visible) else { return minimize_ignored("a hidden window") };
         #[cfg(target_os = "macos")]
         if w.native.panel.is_some() || launcher { return minimize_ignored("a panel"); }
-        // Off macOS winit reports a minimize button on a borderless window too.
-        if self.options.borderless || !w.window.enabled_buttons().contains(winit::window::WindowButtons::MINIMIZE) {
+        // Off macOS winit reports a minimize button on a borderless window too. A borderless
+        // window that resizes is an app window drawing its own frame, whose minimize button is
+        // the app's; one that doesn't (an overlay, a launcher) can't minimize.
+        if (self.options.borderless && !self.options.resizable)
+            || !w.window.enabled_buttons().contains(winit::window::WindowButtons::MINIMIZE) {
             return minimize_ignored("a window without a minimize button");
         }
         #[cfg(target_os = "macos")]

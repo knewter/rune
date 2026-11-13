@@ -180,6 +180,12 @@ impl<S: 'static> Runtime<S> {
         }
     }
 
+    /// The edge a `.window_resize()` element with no press of its own resizes the window from.
+    pub(super) fn bare_resize_region(&self, t: usize) -> Option<crate::WindowEdge> {
+        let n = &self.nodes[t];
+        n.window_resize.filter(|_| n.handlers.on_press.is_none() && n.handlers.on_double_press.is_none() && n.handlers.on_drag.is_none())
+    }
+
     /// A `.window_drag()` element with nothing of its own to do with a press: a press there
     /// moves the window, and a secondary click opens the window menu.
     pub(super) fn bare_drag_region(&self, t: usize) -> bool {

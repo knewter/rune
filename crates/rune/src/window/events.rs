@@ -503,6 +503,9 @@ impl<S: 'static> Host<S> {
                                     let _ = l.window.drag_window();
                                 }
                                 Some(TitlebarAction::DoubleClick) => titlebar_double_click(&l.window),
+                                Some(TitlebarAction::Resize(edge)) => {
+                                    let _ = l.window.drag_resize_window(resize_direction(edge));
+                                }
                                 None => {}
                             }
                         }
@@ -553,3 +556,14 @@ fn touch_promoted() -> bool {
 #[cfg(not(target_os = "windows"))]
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 fn touch_promoted() -> bool { false }
+
+/// winit's direction for a `.window_resize()` region's edge.
+fn resize_direction(edge: crate::WindowEdge) -> winit::window::ResizeDirection {
+    use crate::WindowEdge as E;
+    use winit::window::ResizeDirection as D;
+    match edge {
+        E::North => D::North, E::South => D::South, E::East => D::East, E::West => D::West,
+        E::NorthEast => D::NorthEast, E::NorthWest => D::NorthWest,
+        E::SouthEast => D::SouthEast, E::SouthWest => D::SouthWest,
+    }
+}

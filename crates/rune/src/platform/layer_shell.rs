@@ -277,6 +277,8 @@ fn shape(c: crate::el::Cursor) -> Shape {
         Cursor::Move => Shape::Move,
         Cursor::ResizeColumn => Shape::ColResize,
         Cursor::ResizeRow => Shape::RowResize,
+        Cursor::ResizeNwse => Shape::NwseResize,
+        Cursor::ResizeNesw => Shape::NeswResize,
         Cursor::Crosshair => Shape::Crosshair,
     }
 }

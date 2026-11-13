@@ -410,6 +410,7 @@ pub(super) fn same_root_el(el: &El, built: &crate::memo::Built) -> bool {
         glide,
         input,
         window_drag,
+        window_resize,
         ime_cursor,
         scale,
         time_scale,
@@ -463,6 +464,7 @@ pub(super) fn same_root_el(el: &El, built: &crate::memo::Built) -> bool {
         && el.input.is_none()
         && input.is_none()
         && el.window_drag == *window_drag
+        && el.window_resize == *window_resize
         && el.ime_cursor == *ime_cursor
         && el.scale == *scale
         && el.time_scale == *time_scale

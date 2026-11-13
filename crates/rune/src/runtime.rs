@@ -351,7 +351,7 @@ mod turn;
 pub(crate) use turn::intersect;
 use turn::{Turn, compose_turn, open_turned_layer, screen_clip_of};
 mod types;
-pub use types::{FrameStats, TitlebarAction};
+pub use types::{FrameStats, TitlebarAction, WindowEdge};
 pub(crate) use commit_why::CommitWhy;
 #[cfg(debug_assertions)]
 pub(crate) use layout_read::window_read_key;

@@ -279,6 +279,13 @@ impl El {
         self.window_drag = true;
         self
     }
+    /// A press here resizes the window from `edge`, for an app that draws its own frame on a
+    /// borderless window. The system tracks the resize, as it tracks a `.window_drag()` move;
+    /// give the element the matching `.cursor()`. An element with its own press keeps it.
+    pub fn window_resize(mut self, edge: crate::WindowEdge) -> Self {
+        self.window_resize = Some(edge);
+        self
+    }
     /// The caret of an editor the app draws itself rather than with `text_input`: while this
     /// element is drawn and no text field has focus, the window turns its input method on (dead
     /// keys, CJK, the emoji picker, dictation), places the candidate window at this element's

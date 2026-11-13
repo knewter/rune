@@ -493,6 +493,8 @@ pub struct El {
     pub(crate) glide: Option<crate::growth::FoldGlide>,
     pub(crate) input: Option<Box<InputSpec>>,
     pub(crate) window_drag: bool,
+    /// `El::window_resize`.
+    pub(crate) window_resize: Option<crate::WindowEdge>,
     /// `El::ime_cursor`.
     pub(crate) ime_cursor: bool,
     pub(crate) scale: f32,
@@ -559,6 +561,7 @@ fn base(dir: FlexDirection) -> El {
         glide: None,
         input: None,
         window_drag: false,
+        window_resize: None,
         ime_cursor: false,
         scale: 1.0,
         time_scale: 1.0,

@@ -195,6 +195,14 @@ impl<S: 'static> Runtime<S> {
         // Any press breaks a pending pair unless it's the second press of it.
         let pending = self.last_press.take();
         let now = self.now_clock();
+        if let Some(edge) = self.bare_resize_region(ti) {
+            self.titlebar.action = Some(TitlebarAction::Resize(edge));
+            self.titlebar.clear();
+            if self.focused.is_some() {
+                self.queue.push(Action::Blur);
+            }
+            return;
+        }
         if self.bare_drag_region(ti) {
             self.titlebar.press_region(now, x, y, self.double_click_interval);
             if self.focused.is_some() {

@@ -356,6 +356,33 @@ fn presses_on_a_window_drag_region_move_the_window_but_not_its_buttons() {
 }
 
 #[test]
+fn presses_on_a_window_resize_edge_resize_the_window_from_it() {
+    struct State { pressed: u32 }
+    fn view(_: &State, _: &mut Cx<State>) -> El {
+        col().size(200.0, 200.0)
+            .child(el().key("body").size(200.0, 200.0).on_press(|s: &mut State| s.pressed += 1))
+            .child(el().key("right").pin(None, Some(0.0), Some(0.0), Some(0.0)).w(6.0).window_resize(crate::WindowEdge::East))
+            .child(el().key("corner").pin(None, None, Some(0.0), Some(0.0)).size(12.0, 12.0).window_resize(crate::WindowEdge::SouthEast))
+    }
+    let mut rt = Runtime::new(State { pressed: 0 }, view, (200.0, 200.0), Env::new(true, 1.0));
+    rt.frame(0.0);
+    let cases = [
+        (197.0, 50.0, Some(TitlebarAction::Resize(crate::WindowEdge::East))),
+        (197.0, 50.0, Some(TitlebarAction::Resize(crate::WindowEdge::East))),
+        (195.0, 195.0, Some(TitlebarAction::Resize(crate::WindowEdge::SouthEast))),
+        (100.0, 100.0, None),
+    ];
+    for (x, y, action) in cases {
+        rt.pointer_move(x, y);
+        rt.pointer_down(x, y);
+        assert_eq!(rt.take_titlebar_action(), action, "at {x}, {y}");
+        rt.pointer_up(x, y);
+    }
+    rt.frame(1.0 / 120.0);
+    assert_eq!(rt.state.pressed, 1, "beside the edges, the body presses");
+}
+
+#[test]
 fn a_double_press_on_nothing_in_the_native_titlebar_band_takes_the_titlebar_action() {
     fn view(_: &(), _: &mut Cx<()>) -> El {
         col().size(200.0, 200.0).child(el().key("button").size(40.0, 40.0).on_press(|_: &mut ()| {}))

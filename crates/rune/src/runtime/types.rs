@@ -130,6 +130,7 @@ pub(crate) struct Node {
     /// `El::selection_group`.
     pub(super) selection_group: bool,
     pub(super) window_drag: bool,
+    pub(super) window_resize: Option<crate::WindowEdge>,
     pub(super) ime_cursor: bool,
     /// Placeholder left in `self.nodes` after `try_reuse_memo` moves a node into the new pass.
     pub(super) moved_stub: bool,
@@ -193,6 +194,7 @@ impl Node {
             virtual_mount: false,
             selection_group: false,
             window_drag: false,
+            window_resize: None,
             ime_cursor: false,
             moved_stub: true,
         }
@@ -431,7 +433,14 @@ pub enum TitlebarAction {
     Drag,
     /// The titlebar double-click action (zoom, minimise or nothing, per system setting).
     DoubleClick,
+    /// Resize the window from this edge or corner with the pointer (the system tracks it).
+    Resize(WindowEdge),
 }
+
+/// An edge or corner of a window an app draws its own frame for: a press on a
+/// [`El::window_resize`](crate::El::window_resize) region resizes the window from it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum WindowEdge { North, South, East, West, NorthEast, NorthWest, SouthEast, SouthWest }
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct FrameStats {
