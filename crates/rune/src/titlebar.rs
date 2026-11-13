@@ -73,22 +73,32 @@ pub struct ChromeInsets {
     /// full-screen control): a view hides its titlebar and side panels for what it shows.
     /// False headless unless a test sets it.
     pub full_screen: bool,
+    /// The window is maximized, filling the display's work area: a borderless window that
+    /// rounds its corners squares them here, as framed ones do. False headless.
+    pub maximized: bool,
+    /// The window's empty pixels show what is behind it (`WindowOptions::transparent`, where
+    /// the GPU and compositor allow it): only then can a borderless window round its corners
+    /// by drawing a rounded root. False headless.
+    pub translucent: bool,
 }
 
 impl ChromeInsets {
     pub(crate) fn new(leading: f32, trailing: f32, height: f32) -> Self {
-        Self { leading, trailing, height, full_screen: false }
+        Self { leading, trailing, height, full_screen: false, maximized: false, translucent: false }
     }
 
-    pub(crate) fn with_full_screen(mut self, on: bool) -> Self {
-        self.full_screen = on;
+    pub(crate) fn with_window(mut self, full_screen: bool, maximized: bool, translucent: bool) -> Self {
+        self.full_screen = full_screen;
+        self.maximized = maximized;
+        self.translucent = translucent;
         self
     }
 
     /// The bits a memo scope hashes, so memos rebuild when the insets change.
     pub(crate) fn bits(&self) -> [u32; 4] {
         let [leading, trailing, height] = [self.leading, self.trailing, self.height].map(f32::to_bits);
-        [leading, trailing, height, u32::from(self.full_screen)]
+        let window = u32::from(self.full_screen) | u32::from(self.maximized) << 1 | u32::from(self.translucent) << 2;
+        [leading, trailing, height, window]
     }
 }
 
