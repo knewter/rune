@@ -2,12 +2,17 @@
 
 use std::cell::{Cell, Ref, RefCell};
 use std::ops::Range;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use rune_taffy::CompactStyle;
 use taffy::style::{Display, FlexDirection, FlexWrap, LengthPercentage, LengthPercentageAuto, Position};
 
 use crate::El;
 use crate::runtime::{HashMap, HashSet};
+
+/// The next [`VirtualList::source`]: unique across every list in the process, so one list's
+/// data source never shares an id with another's. Zero stands for no rows yet.
+static NEXT_SOURCE: AtomicU64 = AtomicU64::new(1);
 
 /// What a row keeps while its key stays.
 #[derive(Debug, Clone, Copy)]
@@ -28,6 +33,10 @@ pub(crate) struct VirtualList {
     keys_fresh: bool,
     /// The last change to `keys` kept a row the reader could see.
     held: bool,
+    /// Which data source the rows come from: a fresh id each time a change to `keys` keeps no
+    /// row the reader could see, so a list in another's place, or the same list showing other
+    /// data, is told apart from rows that grew or changed in place. Zero before any rows.
+    source: u64,
     /// Rows mounted with their insertion transition and not yet drawn; the runtime lands the
     /// ones that drew nothing (`runtime/unseen_presence.rs`).
     pub entering: HashSet<String>,
@@ -218,6 +227,12 @@ impl VirtualList {
         self.keys_fresh && !self.held
     }
 
+    /// Which data source the rows come from ([`VirtualList::set_keys`] picks a fresh one when a
+    /// change keeps no row the reader could see); zero before any rows.
+    pub fn source(&self) -> u64 {
+        self.source
+    }
+
     /// A new frame: what changed the keys before it has been drawn. Within a frame a scroll the
     /// change asks for (`Tx::scroll_into_view`) commits again, and the rows it brings in are
     /// still the change's.
@@ -250,6 +265,7 @@ impl VirtualList {
         if keys != self.keys {
             self.keys_fresh = true;
             self.held = if offset.is_some() { anchor.is_some() } else { self.keys.iter().any(|k| rows.contains_key(k)) };
+            if !self.held { self.source = NEXT_SOURCE.fetch_add(1, Ordering::Relaxed); }
         }
         self.rows = rows;
         self.born = born;
@@ -497,6 +513,36 @@ mod tests {
         assert_eq!(v.prefix(100), 2312.0, "a changed gap invalidates prefix sums");
         v.set_keys(Vec::new(), 1, None);
         assert_eq!(v.prefix(0), 0.0);
+    }
+
+    /// r374: rows that grow or change in place keep their source; rows that keep none the reader
+    /// could see are another source.
+    #[test]
+    fn a_change_that_keeps_no_visible_row_is_another_source() {
+        let keys = |prefix: &str, n: usize| (0..n).map(|i| format!("{prefix}{i}")).collect::<Vec<_>>();
+        let mut v = VirtualList::default();
+        v.set_estimate(20.0);
+        v.viewport = 100.0;
+        assert_eq!(v.source(), 0, "no rows, no source");
+        v.set_keys(keys("a", 50), 0, Some(0.0));
+        let first = v.source();
+        assert_ne!(first, 0, "the first rows are a source");
+        v.set_keys(keys("a", 60), 1, Some(0.0));
+        assert_eq!(v.source(), first, "rows appended below stay the same source");
+        v.set_keys(keys("a", 60), 2, None);
+        assert_eq!(v.source(), first, "the same rows are the same source");
+        let mut grown = keys("a", 60);
+        grown.push("z".into());
+        v.set_keys(grown, 3, None);
+        assert_eq!(v.source(), first, "a pinned list that grows keeps its source");
+        v.set_keys(keys("b", 60), 4, Some(0.0));
+        let second = v.source();
+        assert_ne!(second, first, "rows that share none in view are another source");
+        v.set_keys(keys("c", 60), 5, None);
+        assert_ne!(v.source(), second, "and so are rows that share none at all");
+        let mut other = VirtualList::default();
+        other.set_keys(keys("c", 60), 0, None);
+        assert_ne!(other.source(), v.source(), "another list showing the same rows is its own source");
     }
 
     #[test]

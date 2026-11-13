@@ -24,10 +24,14 @@ struct Thinning {
     short: bool,
     /// The list is gone from the view.
     gone: bool,
+    /// Which data source the rows come from: a new one shares no key with the last.
+    source: u32,
+    /// The list is keyed by its source, so a new source is a new list in its place.
+    keyed_by_source: bool,
 }
 
 fn thinning() -> Runtime<Thinning> {
-    let state = Thinning { builds: Rc::new(Cell::new(0)), short: false, gone: false };
+    let state = Thinning { builds: Rc::new(Cell::new(0)), short: false, gone: false, source: 0, keyed_by_source: false };
     Runtime::new(state, thinning_view, (400.0, VIEWPORT), Env::new(true, 2.0))
 }
 
@@ -35,16 +39,18 @@ fn thinning_view(s: &Thinning, _: &mut Cx<Thinning>) -> El {
     if s.gone { return el().key("empty").w_full().h_full(); }
     let builds = s.builds.clone();
     let count = if s.short { 3 } else { ROWS };
+    let source = s.source;
+    let key = if s.keyed_by_source { format!("rows{source}") } else { "rows".to_owned() };
     let list = col().key("scroll").w(300.0).h(VIEWPORT).scroll(ScrollSpec { stick_bottom: false }).child(
-        col().key("rows").w_full().growth(GrowthSpec::default()).virtual_rows(
+        col().key(key).w_full().growth(GrowthSpec::default()).virtual_rows(
             count,
             ROW_H,
-            |_: &Thinning, i| format!("r{i}").into(),
+            move |_: &Thinning, i| format!("s{source}r{i}").into(),
             move |_: &Thinning, i| {
                 let n = builds.get();
                 builds.set(n + 1);
                 let height = if n < 12 { ROW_H } else { THIN };
-                el().key(format!("r{i}")).w_full().h(height).fill(Color::WHITE)
+                el().key(format!("s{source}r{i}")).w_full().h(height).fill(Color::WHITE)
             },
         ),
     );
@@ -189,6 +195,56 @@ fn an_unrelated_scroller_does_not_reset_the_fill() {
     let frames = draw_while_asked(&mut rt, false);
     assert!(frames < 4_000, "the fill still stops: {frames} frames");
     assert_eq!(rt.wake_deadline(), None, "nothing is left armed");
+}
+
+/// r374: the list's data source changes while its fill waits, and the new rows also want filling,
+/// with no frame between that finds nothing to fill. The new source's fill is its own run: it
+/// draws at once and owes nothing to the old source's wait or its resumes.
+#[test]
+fn a_new_source_in_place_of_a_waiting_fill_starts_its_own_run() {
+    for keyed_by_source in [false, true] {
+        let mut rt = thinning();
+        rt.update(|s, _| s.keyed_by_source = keyed_by_source);
+        let due = draw_to_wait(&mut rt);
+        rt.update(|s, _| s.source = 1);
+        rt.frame(1.0 / 120.0);
+        assert!(rt.clock < due, "the frame is before the old source's deadline");
+        let new_source = |rt: &Runtime<Thinning>| {
+            rt.virtuals.iter().find(|(_, v)| v.keys.first().is_some_and(|k| k.starts_with("s1"))).map(|(p, _)| p.clone())
+        };
+        assert!(new_source(&rt).is_some(), "the new source is in the view");
+        assert!(
+            matches!(rt.virtual_fill.state(), State::Filling { frames: 1, resumes: 0, .. }),
+            "keyed by source {keyed_by_source}: the new source starts its own run: {:?}",
+            rt.virtual_fill.state()
+        );
+        assert_ne!(rt.anim_sources & AnimSource::VIRTUAL_FILL, 0, "and its first fill frame draws");
+        assert!(!rt.virtual_fill.resuming(due), "the old source's deadline resumes nothing");
+        let frames = draw_while_asked(&mut rt, true);
+        assert_eq!(rt.virtuals.len(), 1, "only the new source is left");
+        let path = new_source(&rt).expect("the new source");
+        let (offset, pinned) = offset(&rt, &path);
+        assert!(!rt.virtuals[&path].needs_window(offset, pinned), "the new source fills, after {frames} frames");
+    }
+}
+
+/// r374: the same, when the new source comes in the very frame the old source's deadline comes
+/// due. That wake resumes nothing of the old run.
+#[test]
+fn a_new_source_on_the_old_deadline_starts_its_own_run() {
+    let mut rt = thinning();
+    let due = draw_to_wait(&mut rt);
+    let State::Waiting { resumes, .. } = rt.virtual_fill.state() else { unreachable!() };
+    assert_eq!(resumes, 1, "the old source has spent a resume");
+    rt.update(|s, _| s.source = 1);
+    rt.frame((due - rt.clock).max(1.0 / 120.0));
+    assert!(rt.clock >= due - 1e-9, "the deadline came due");
+    assert!(
+        matches!(rt.virtual_fill.state(), State::Filling { frames: 1, resumes: 0, .. }),
+        "the new source starts its own run: {:?}",
+        rt.virtual_fill.state()
+    );
+    assert_ne!(rt.anim_sources & AnimSource::VIRTUAL_FILL, 0, "and its first fill frame draws");
 }
 
 /// r367: the wake that was waiting comes due after the list finished filling, and draws nothing.
