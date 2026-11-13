@@ -356,6 +356,34 @@ fn presses_on_a_window_drag_region_move_the_window_but_not_its_buttons() {
 }
 
 #[test]
+fn a_window_move_page_moves_the_window_from_blank_space_and_never_zooms() {
+    struct State { pressed: u32 }
+    fn view(_: &State, _: &mut Cx<State>) -> El {
+        col().key("page").size(200.0, 200.0).window_move()
+            .child(crate::el::row().key("titlebar").size(200.0, 40.0).window_drag())
+            .child(el().key("button").size(40.0, 40.0).on_press(|s: &mut State| s.pressed += 1))
+    }
+    let mut rt = Runtime::new(State { pressed: 0 }, view, (200.0, 200.0), Env::new(true, 1.0));
+    rt.frame(0.0);
+    let double = |rt: &mut Runtime<State>, x: f32, y: f32| {
+        let mut actions = Vec::new();
+        for _ in 0..2 {
+            rt.pointer_move(x, y);
+            rt.pointer_down(x, y);
+            actions.push(rt.take_titlebar_action());
+            rt.pointer_up(x, y);
+        }
+        actions
+    };
+    let drag = Some(TitlebarAction::Drag);
+    assert_eq!(double(&mut rt, 100.0, 150.0), [drag, drag], "blank page space moves the window, and never zooms it");
+    assert_eq!(double(&mut rt, 100.0, 20.0), [drag, Some(TitlebarAction::DoubleClick)], "the title bar still zooms");
+    assert_eq!(double(&mut rt, 20.0, 60.0), [None, None], "a button on the page keeps its presses");
+    rt.frame(1.0 / 120.0);
+    assert_eq!(rt.state.pressed, 2);
+}
+
+#[test]
 fn presses_on_a_window_resize_edge_resize_the_window_from_it() {
     struct State { pressed: u32 }
     fn view(_: &State, _: &mut Cx<State>) -> El {

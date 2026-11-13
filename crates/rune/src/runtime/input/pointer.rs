@@ -204,7 +204,8 @@ impl<S: 'static> Runtime<S> {
             return;
         }
         if self.bare_drag_region(ti) {
-            self.titlebar.press_region(now, x, y, self.double_click_interval);
+            let zoom = !self.nodes[ti].window_move;
+            self.titlebar.press_region(now, x, y, self.double_click_interval, zoom);
             if self.focused.is_some() {
                 self.queue.push(Action::Blur);
             }

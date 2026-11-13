@@ -130,6 +130,7 @@ pub(crate) struct Node {
     /// `El::selection_group`.
     pub(super) selection_group: bool,
     pub(super) window_drag: bool,
+    pub(super) window_move: bool,
     pub(super) window_resize: Option<crate::WindowEdge>,
     pub(super) ime_cursor: bool,
     /// Placeholder left in `self.nodes` after `try_reuse_memo` moves a node into the new pass.
@@ -194,6 +195,7 @@ impl Node {
             virtual_mount: false,
             selection_group: false,
             window_drag: false,
+            window_move: false,
             window_resize: None,
             ime_cursor: false,
             moved_stub: true,

@@ -279,6 +279,15 @@ impl El {
         self.window_drag = true;
         self
     }
+    /// Pressing this element moves the window, as `.window_drag()` does, but a double press
+    /// does nothing: for the page behind an app's content, which moves the window from any
+    /// space nothing else claims while only its title bar zooms. Hit targets inside it keep
+    /// their presses.
+    pub fn window_move(mut self) -> Self {
+        self.window_drag = true;
+        self.window_move = true;
+        self
+    }
     /// A press here resizes the window from `edge`, for an app that draws its own frame on a
     /// borderless window. The system tracks the resize, as it tracks a `.window_drag()` move;
     /// give the element the matching `.cursor()`. An element with its own press keeps it.

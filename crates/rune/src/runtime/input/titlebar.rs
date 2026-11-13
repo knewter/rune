@@ -43,7 +43,13 @@ pub(crate) enum WindowMenu {
 
 impl Titlebar {
     /// A press on a `.window_drag()` region: drag, or the double-click action on its second press.
-    pub(super) fn press_region(&mut self, now: f64, x: f32, y: f32, interval: f64) {
+    /// A `.window_move()` region only drags, and breaks any pending double press.
+    pub(super) fn press_region(&mut self, now: f64, x: f32, y: f32, interval: f64, zoom: bool) {
+        if !zoom {
+            self.clear();
+            self.action = Some(TitlebarAction::Drag);
+            return;
+        }
         self.action = Some(if self.double(now, x, y, interval) { TitlebarAction::DoubleClick } else { TitlebarAction::Drag });
     }
 
