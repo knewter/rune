@@ -1,6 +1,8 @@
 pub(crate) mod accent;
 #[cfg(all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android")))]
 pub(crate) mod activation;
+#[cfg(all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android")))]
+pub(crate) mod shortcuts_inhibit;
 pub(crate) mod app_icon;
 #[cfg(target_os = "macos")]
 pub(crate) mod display_link;

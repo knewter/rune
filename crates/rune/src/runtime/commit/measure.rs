@@ -178,9 +178,9 @@ impl<S: 'static> Measurement<'_, S> {
 
     /// What a memo scope hashes of the window's controls (`Cx::titlebar_inset`,
     /// `Cx::chrome_insets`), so memos that read them rebuild when they change.
-    pub(super) fn chrome_bits(&self) -> [u32; 4] {
-        let [leading, trailing, height] = self.chrome.bits();
-        [self.titlebar_inset.to_bits(), leading, trailing, height]
+    pub(super) fn chrome_bits(&self) -> [u32; 5] {
+        let [leading, trailing, height, full_screen] = self.chrome.bits();
+        [self.titlebar_inset.to_bits(), leading, trailing, height, full_screen]
     }
 
     pub(super) fn finish(self, tx: &Tx) -> Measured {

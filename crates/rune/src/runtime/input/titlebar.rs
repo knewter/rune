@@ -22,6 +22,10 @@ pub(super) struct Titlebar {
     pub(super) caption: Option<crate::titlebar::Caption>,
     /// `Tx::toggle_maximized`, for the shell.
     pub(super) toggle_maximized: bool,
+    /// `Tx::set_full_screen`, for the shell.
+    pub(super) full_screen: Option<bool>,
+    /// `Tx::inhibit_shortcuts`, for the shell.
+    pub(super) inhibit_shortcuts: Option<bool>,
     /// `Cx::titlebar_height`, as the last view set it, and whether the shell has yet to see it.
     height: Option<f32>,
     height_changed: bool,
@@ -135,6 +139,18 @@ impl<S: 'static> Runtime<S> {
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub(crate) fn take_toggle_maximized(&mut self) -> bool {
         std::mem::take(&mut self.titlebar.toggle_maximized)
+    }
+
+    /// Takes the last `Tx::set_full_screen`, for the shell to carry out (a headless run's test
+    /// reads it here).
+    pub fn take_full_screen(&mut self) -> Option<bool> {
+        self.titlebar.full_screen.take()
+    }
+
+    /// Takes the last `Tx::inhibit_shortcuts`, for the shell to carry out (a headless run's
+    /// test reads it here).
+    pub fn take_inhibit_shortcuts(&mut self) -> Option<bool> {
+        self.titlebar.inhibit_shortcuts.take()
     }
 
     /// The window menu a secondary click on a drag region or an unclaimed Alt+Space asked for,

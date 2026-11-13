@@ -198,6 +198,8 @@ pub(super) fn merge(tx: &mut Tx, one: Tx) {
     tx.shell = tx.shell.max(one.shell);
     tx.minimize |= one.minimize;
     tx.toggle_maximized |= one.toggle_maximized;
+    if one.full_screen.is_some() { tx.full_screen = one.full_screen; }
+    if one.inhibit_shortcuts.is_some() { tx.inhibit_shortcuts = one.inhibit_shortcuts; }
     if one.title.is_some() { tx.title = one.title; }
     tx.playground.extend(one.playground);
     tx.open_urls.extend(one.open_urls);

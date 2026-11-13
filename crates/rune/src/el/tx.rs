@@ -58,6 +58,10 @@ pub struct Tx {
     pub(crate) minimize: bool,
     /// `Tx::toggle_maximized`.
     pub(crate) toggle_maximized: bool,
+    /// `Tx::set_full_screen`.
+    pub(crate) full_screen: Option<bool>,
+    /// `Tx::inhibit_shortcuts`.
+    pub(crate) inhibit_shortcuts: Option<bool>,
     /// `Tx::drop_point`.
     pub(crate) drop_point: Option<PointerEvent>,
     pub(crate) title: Option<String>,
@@ -207,6 +211,23 @@ impl Tx {
     /// maximize button would (macOS zooms). Does nothing for overlays and headless runs.
     pub fn toggle_maximized(&mut self) {
         self.toggle_maximized = true;
+    }
+
+    /// Put this window in full screen after this handler, borderless on its current display, or
+    /// take it out. [`Cx::chrome_insets`](crate::Cx::chrome_insets)`.full_screen` says which it
+    /// is once the system answers, and also follows the system's own full-screen control. Does
+    /// nothing for overlays and headless runs.
+    pub fn set_full_screen(&mut self, on: bool) {
+        self.full_screen = Some(on);
+    }
+
+    /// Ask that the system's keyboard shortcuts reach this window instead while it has the
+    /// keyboard (Super, Alt+Tab and the like), for a remote desktop or a VM's screen; `false`
+    /// gives them back. On Wayland this is `zwp_keyboard_shortcuts_inhibit_v1`: the compositor
+    /// decides, may ask the user first, and always keeps a key that restores its shortcuts.
+    /// Does nothing elsewhere.
+    pub fn inhibit_shortcuts(&mut self, on: bool) {
+        self.inhibit_shortcuts = Some(on);
     }
 
     /// Set this window's title after this handler, in its title bar and the Window menu. The

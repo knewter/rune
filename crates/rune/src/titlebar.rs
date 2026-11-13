@@ -69,16 +69,26 @@ pub struct ChromeInsets {
     /// the native titlebar, 0 where the native frame stays (no `App::titlebar`, Linux, a
     /// borderless window).
     pub height: f32,
+    /// The window fills its display as full screen (`Tx::set_full_screen`, or the system's own
+    /// full-screen control): a view hides its titlebar and side panels for what it shows.
+    /// False headless unless a test sets it.
+    pub full_screen: bool,
 }
 
 impl ChromeInsets {
     pub(crate) fn new(leading: f32, trailing: f32, height: f32) -> Self {
-        Self { leading, trailing, height }
+        Self { leading, trailing, height, full_screen: false }
+    }
+
+    pub(crate) fn with_full_screen(mut self, on: bool) -> Self {
+        self.full_screen = on;
+        self
     }
 
     /// The bits a memo scope hashes, so memos rebuild when the insets change.
-    pub(crate) fn bits(&self) -> [u32; 3] {
-        [self.leading, self.trailing, self.height].map(f32::to_bits)
+    pub(crate) fn bits(&self) -> [u32; 4] {
+        let [leading, trailing, height] = [self.leading, self.trailing, self.height].map(f32::to_bits);
+        [leading, trailing, height, u32::from(self.full_screen)]
     }
 }
 

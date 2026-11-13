@@ -259,3 +259,28 @@ fn a_new_system_scroll_bar_setting_rebuilds_the_view_and_its_memos() {
     rt.frame(5.0);
     assert_eq!((w(&rt, "cx"), w(&rt, "memo")), (80.0, 90.0));
 }
+
+#[test]
+fn full_screen_and_held_shortcuts_are_asked_of_the_shell_and_full_screen_rebuilds_the_view() {
+    fn view(_: &(), cx: &mut Cx<()>) -> El {
+        let band = if cx.chrome_insets().full_screen { 0.0 } else { 30.0 };
+        crate::col().size(300.0, 100.0).child(el().key("band").h(band).w_full()).child(el().key("body").size(50.0, 20.0))
+    }
+    let y = |rt: &Runtime<()>| rt.presented("body").unwrap().0[1];
+    let mut rt = Runtime::new((), view, (300.0, 100.0), Env::new(true, 1.0));
+    rt.frame(0.0);
+    assert_eq!(rt.take_full_screen(), None);
+    rt.update(|_, tx| { tx.set_full_screen(true); tx.inhibit_shortcuts(true); });
+    assert_eq!(rt.take_full_screen(), Some(true));
+    assert_eq!(rt.take_inhibit_shortcuts(), Some(true));
+    assert_eq!(rt.take_full_screen(), None, "taken once");
+    rt.update(|_, tx| { tx.inhibit_shortcuts(true); tx.inhibit_shortcuts(false); });
+    assert_eq!(rt.take_inhibit_shortcuts(), Some(false), "the last ask wins");
+    assert_eq!(y(&rt), 30.0);
+    let mut insets = rt.chrome_insets();
+    insets.full_screen = true;
+    rt.set_chrome_insets(insets);
+    rt.frame(0.1);
+    rt.frame(5.0);
+    assert_eq!(y(&rt), 0.0, "the view hears the window went full screen");
+}

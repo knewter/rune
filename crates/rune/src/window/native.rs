@@ -31,6 +31,8 @@ pub(super) struct Native {
 #[derive(Default)]
 pub(super) struct Native {
     pub(super) activator: Option<crate::platform::activation::Activator>,
+    /// Holds the system's keyboard shortcuts for this window (`Tx::inhibit_shortcuts`).
+    pub(super) inhibitor: Option<crate::platform::shortcuts_inhibit::Inhibitor>,
 }
 
 #[cfg(target_os = "windows")]

@@ -186,6 +186,21 @@ impl<S: 'static> Host<S> {
         if self.rt.take_toggle_maximized() && let Some(w) = self.win.as_ref().filter(|w| w.visible) {
             chrome::toggle_maximized(&w.window);
         }
+        if let Some(on) = self.rt.take_full_screen() && let Some(w) = self.win.as_ref().filter(|w| w.visible) {
+            w.window.set_fullscreen(on.then_some(winit::window::Fullscreen::Borderless(None)));
+        }
+        if let Some(on) = self.rt.take_inhibit_shortcuts() && let Some(w) = self.win.as_mut() {
+            #[cfg(all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android")))]
+            {
+                w.native.inhibitor = if on {
+                    w.native.inhibitor.take().or_else(|| crate::platform::shortcuts_inhibit::Inhibitor::new(&w.window))
+                } else {
+                    None
+                };
+            }
+            #[cfg(not(all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))))]
+            let _ = (on, w);
+        }
         if let Some(menu) = self.rt.take_window_menu() && let Some(w) = self.win.as_ref().filter(|w| w.visible) {
             chrome::window_menu(&w.window, menu);
         }

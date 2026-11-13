@@ -40,7 +40,8 @@ pub(super) fn sync_chrome<S: 'static>(rt: &mut Runtime<S>, w: &Win, chrome: Chro
     let caption = caption(w, height);
     let scale = w.window.scale_factor() as f32;
     let height = height.filter(|_| custom_frame(w)).unwrap_or(0.0);
-    rt.set_chrome_insets(crate::ChromeInsets::new(leading, caption.map_or(0.0, |c| c.width(scale)), height));
+    let full_screen = w.window.fullscreen().is_some();
+    rt.set_chrome_insets(crate::ChromeInsets::new(leading, caption.map_or(0.0, |c| c.width(scale)), height).with_full_screen(full_screen));
     rt.set_caption(caption);
 }
 
