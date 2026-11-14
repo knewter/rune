@@ -1002,6 +1002,13 @@ impl El {
         self.focus.enabled = enabled;
         self
     }
+    /// While this element has focus, the window holds the system's keyboard shortcuts, as
+    /// `Tx::inhibit_shortcuts(true)` does, and gives them back when focus leaves: a remote
+    /// desktop or a VM's screen that wants Super and Alt+Tab once it is clicked into.
+    pub fn holds_shortcuts(mut self, on: bool) -> Self {
+        self.focus.holds_shortcuts = on;
+        self
+    }
     /// Positive overrides precede document order (0); negative values skip Tab only.
     pub fn tab_index(mut self, order: i32) -> Self {
         self.focus.order = order;

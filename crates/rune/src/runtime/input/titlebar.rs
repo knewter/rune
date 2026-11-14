@@ -26,6 +26,10 @@ pub(super) struct Titlebar {
     pub(super) full_screen: Option<bool>,
     /// `Tx::inhibit_shortcuts`, for the shell.
     pub(super) inhibit_shortcuts: Option<bool>,
+    /// What the last `Tx::inhibit_shortcuts` asked for, held until another says otherwise.
+    pub(super) shortcuts_asked: bool,
+    /// Whether the shell was last told to hold the shortcuts.
+    shortcuts_held: bool,
     /// `Cx::titlebar_height`, as the last view set it, and whether the shell has yet to see it.
     height: Option<f32>,
     height_changed: bool,
@@ -145,6 +149,17 @@ impl<S: 'static> Runtime<S> {
     /// reads it here).
     pub fn take_full_screen(&mut self) -> Option<bool> {
         self.titlebar.full_screen.take()
+    }
+
+    /// Holds the system's shortcuts while a `Tx` asked for them or the focused element
+    /// `holds_shortcuts`, and tells the shell only when that changes.
+    pub(in crate::runtime) fn settle_shortcuts(&mut self) {
+        let focused = self.focused_index().is_some_and(|i| self.nodes[i].focus.holds_shortcuts);
+        let want = self.titlebar.shortcuts_asked || focused;
+        if want != self.titlebar.shortcuts_held {
+            self.titlebar.shortcuts_held = want;
+            self.titlebar.inhibit_shortcuts = Some(want);
+        }
     }
 
     /// Takes the last `Tx::inhibit_shortcuts`, for the shell to carry out (a headless run's

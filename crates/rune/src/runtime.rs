@@ -247,6 +247,9 @@ mod drop_tests;
 #[path = "runtime/on_key_tests.rs"]
 mod on_key_tests;
 #[cfg(test)]
+#[path = "runtime/holds_shortcuts_tests.rs"]
+mod holds_shortcuts_tests;
+#[cfg(test)]
 #[path = "live_only_tests.rs"]
 mod live_only_tests;
 #[cfg(test)]

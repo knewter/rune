@@ -31,6 +31,8 @@ pub(crate) struct FocusSpec {
     pub key_up: Option<InputKeyFn>,
     /// `El::on_key`: keys while this element or one inside it has focus.
     pub key: Option<InputKeyFn>,
+    /// `El::holds_shortcuts`: while this element has focus, the system's shortcuts are held.
+    pub holds_shortcuts: bool,
 }
 
 impl crate::cold::Empty for FocusSpec {
@@ -53,5 +55,6 @@ impl crate::cold::Empty for FocusSpec {
         step_limit: None,
         key_up: None,
         key: None,
+        holds_shortcuts: false,
     };
 }

@@ -162,7 +162,7 @@ impl<S: 'static> Runtime<S> {
         self.minimize_request |= std::mem::take(&mut tx.minimize);
         self.titlebar.toggle_maximized |= std::mem::take(&mut tx.toggle_maximized);
         if let Some(on) = tx.full_screen.take() { self.titlebar.full_screen = Some(on); }
-        if let Some(on) = tx.inhibit_shortcuts.take() { self.titlebar.inhibit_shortcuts = Some(on); }
+        if let Some(on) = tx.inhibit_shortcuts.take() { self.titlebar.shortcuts_asked = on; }
         self.latch_playground(tx);
         if !tx.open_urls.is_empty() { self.open_urls(std::mem::take(&mut tx.open_urls)); }
         if std::mem::take(&mut tx.clear_secret) {
@@ -530,6 +530,7 @@ impl<S: 'static> Runtime<S> {
             self.latch_requests(&mut tx);
         }
         self.release_files();
+        self.settle_shortcuts();
         self.schedule_wakes(tx.wakes.drain(..));
         self.capture_flights(&mut tx);
         if self.caret_watch && self.caret_moved(None) { self.dirty = true; }
