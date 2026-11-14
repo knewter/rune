@@ -43,9 +43,16 @@ impl Worker {
         if completed.recv_timeout(Duration::from_millis(250)).is_ok() { let _ = handle.join(); }
     }
 }
-#[cfg(not(any(target_os = "ios", target_os = "android")))]
+#[cfg(not(any(target_os = "ios", target_os = "android", all(unix, not(target_os = "macos")))))]
 fn worker() -> &'static mpsc::Sender<Request> {
     &WORKER.get_or_init(|| Worker::spawn(|| arboard::Clipboard::new().ok())).sender
+}
+
+/// Linux: the window's Wayland connection where there is one, beside arboard (data control, or
+/// X11) for the forms Wayland's text clipboard here does not carry.
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+fn worker() -> &'static mpsc::Sender<Request> {
+    &WORKER.get_or_init(|| Worker::spawn(super::wayland::Linux::open)).sender
 }
 
 #[cfg(any(target_os = "ios", target_os = "android"))]
@@ -122,7 +129,7 @@ fn run_worker<B: Backend>(recv: mpsc::Receiver<Request>, mut open: impl FnMut() 
 }
 
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
-fn write(cb: &mut arboard::Clipboard, copy: &ClipboardWrite) -> Result<(), String> {
+pub(super) fn write(cb: &mut arboard::Clipboard, copy: &ClipboardWrite) -> Result<(), String> {
     let content = &copy.content;
     if copy.clear_after.is_none() && content.is_rich() {
         #[cfg(target_os = "macos")]
@@ -165,7 +172,7 @@ fn write_text(cb: &mut arboard::Clipboard, copy: &ClipboardWrite) -> Result<(), 
 }
 
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
-fn revision() -> Option<u64> {
+pub(super) fn revision() -> Option<u64> {
     #[cfg(target_os = "macos")]
     { return Some(unsafe { objc2_app_kit::NSPasteboard::generalPasteboard().changeCount() } as u64); }
     #[cfg(target_os = "windows")]

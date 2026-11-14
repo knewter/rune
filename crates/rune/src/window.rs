@@ -248,6 +248,13 @@ impl ApplicationHandler<WakeEvent> for Windows {
         let trace_window = self.args.window.clone().or_else(|| specs.first().map(|s| s.key().to_owned()));
         let mut overlays = Vec::new();
         let wayland = is_wayland(event_loop);
+        #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+        if wayland {
+            use winit::raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
+            if let Ok(RawDisplayHandle::Wayland(handle)) = event_loop.display_handle().map(|h| h.as_raw()) {
+                crate::clipboard::set_wayland_display(handle.display.as_ptr());
+            }
+        }
         self.hosts = start_all(specs, |slot, spec| {
             let traced = trace_window.as_deref() == Some(spec.key());
             spec.start(self.args.clone(), Start { proxy: self.proxy.clone(), slot, gpu: self.gpu.clone(), wayland, traced, overlays: &mut overlays })

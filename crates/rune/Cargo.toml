@@ -91,6 +91,12 @@ pollster = "1"
 [target.'cfg(all(not(target_arch = "wasm32"), not(target_os = "ios"), not(target_os = "android")))'.dependencies]
 arboard = { version = "3.6", default-features = false, features = ["wayland-data-control"] }
 
+# The Wayland clipboard every compositor offers (`wl_data_device`, through the window's own
+# connection): GNOME has no data-control protocol, so arboard falls back to X11 there and finds
+# nothing where no X display is reachable.
+[target.'cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))'.dependencies]
+smithay-clipboard = "0.7"
+
 # Pasted images on Windows and Linux; macOS reads the pasteboard's PNG or TIFF itself.
 [target.'cfg(any(target_os = "windows", all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android")))))'.dependencies]
 arboard = { version = "3.6", default-features = false, features = ["wayland-data-control", "image-data"] }

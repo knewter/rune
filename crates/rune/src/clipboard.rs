@@ -23,6 +23,10 @@ pub(crate) mod tx;
 mod macos;
 #[cfg(not(target_arch = "wasm32"))]
 mod native;
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+mod wayland;
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+pub(crate) use wayland::set_display as set_wayland_display;
 #[cfg(target_arch = "wasm32")]
 mod web;
 #[cfg(target_os = "macos")]
