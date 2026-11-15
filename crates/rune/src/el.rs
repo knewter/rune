@@ -606,7 +606,7 @@ pub fn text(content: impl Into<String>) -> El {
     e.role = "text";
     e.text = Some(crate::cold::SharedBox::new(TextSpec {
         content: content.into(),
-        style: crate::tok::type_::BODY,
+        style: crate::tok::scaled(crate::tok::type_::BODY),
         color: Color::WHITE,
         inked: false,
         align: Align::Start,
@@ -647,6 +647,7 @@ pub fn text(content: impl Into<String>) -> El {
 
 /// Text with styled byte ranges; wraps at its width.
 pub fn rich(content: impl Into<String>, spans: Vec<Span>) -> El {
+    let spans = crate::el::text::scaled_spans(spans);
     let mut e = text(content);
     if let Some(t) = &mut e.text {
         t.spans = if spans.len() <= 1 || spans.windows(2).all(|w| w[0].start < w[0].end && w[0].end <= w[1].start) {

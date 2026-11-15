@@ -6,7 +6,7 @@ use super::*;
 impl El {
     pub fn font(mut self, s: TextStyle) -> Self {
         if let Some(t) = &mut self.text {
-            t.style = s;
+            t.style = crate::tok::scaled(s);
         }
         if self.input.is_some() {
             self.sync_input_rich();
@@ -18,7 +18,7 @@ impl El {
     /// On a [`text_input`], byte offsets are relative to `edit.text` and shift automatically
     /// across any active IME preedit.
     pub fn spans(mut self, spans: impl Into<Vec<Span>>) -> Self {
-        let spans = spans.into();
+        let spans = scaled_spans(spans.into());
         if let Some(inp) = &mut self.input {
             inp.decorations = spans;
             self.sync_input_rich();
@@ -480,4 +480,17 @@ impl El {
         if let Some(i) = &mut self.input { i.animate_layout = true; }
         self
     }
+}
+
+/// Spans whose own sizes follow [`crate::tok::text_scale`], as the element's style does.
+pub(crate) fn scaled_spans(mut spans: Vec<Span>) -> Vec<Span> {
+    let k = crate::tok::text_scale();
+    if k != 1.0 {
+        for span in &mut spans {
+            if let Some(size) = &mut span.size {
+                *size *= k;
+            }
+        }
+    }
+    spans
 }

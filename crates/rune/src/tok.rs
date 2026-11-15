@@ -218,3 +218,50 @@ pub fn accent(i: usize, dark: bool) -> Color {
         _ => oklch(l - 0.02, 0.012, 265.0),
     }
 }
+
+thread_local! {
+    static TEXT_SCALE: std::cell::Cell<f32> = const { std::cell::Cell::new(1.0) };
+}
+
+/// Sets the factor every text style built on this thread is drawn at, from here on: an app
+/// that zooms its whole window (a compact density) and wants text kept at the size the person
+/// chose sets the inverse here. It applies where a style is given to an element ([`crate::text`],
+/// [`crate::El::font`], a [`crate::text::Span`]'s size), so set it before the view builds;
+/// a [`crate::memo`]'d subtree is built again when it changes. 1.0 (the default) changes nothing.
+pub fn set_text_scale(scale: f32) {
+    let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
+    TEXT_SCALE.set(scale);
+}
+
+/// The factor [`set_text_scale`] set on this thread.
+pub fn text_scale() -> f32 {
+    TEXT_SCALE.get()
+}
+
+/// `style` at the thread's [`text_scale`]: its size, line height and tracking.
+pub(crate) fn scaled(style: TextStyle) -> TextStyle {
+    let k = text_scale();
+    if k == 1.0 {
+        return style;
+    }
+    TextStyle { size: style.size * k, line_height: style.line_height * k, tracking: style.tracking * k, ..style }
+}
+
+#[cfg(test)]
+mod text_scale_tests {
+    use super::*;
+
+    #[test]
+    fn text_built_under_a_scale_keeps_its_size_through_a_zoom() {
+        set_text_scale(1.0 / 0.86);
+        let body = crate::text("body");
+        let fonted = crate::text("t").font(type_::BODY);
+        let spans = crate::rich("ab", vec![crate::text::Span { start: 0, end: 1, size: Some(10.0), ..Default::default() }]);
+        set_text_scale(1.0);
+        let k = 1.0 / 0.86;
+        assert!((body.text.as_ref().unwrap().style.size - type_::BODY.size * k).abs() < 1e-4);
+        assert!((fonted.text.as_ref().unwrap().style.size - type_::BODY.size * k).abs() < 1e-4);
+        assert!((spans.text.as_ref().unwrap().spans[0].size.unwrap() - 10.0 * k).abs() < 1e-4);
+        assert_eq!(crate::text("x").text.as_ref().unwrap().style.size, type_::BODY.size, "back at 1.0");
+    }
+}

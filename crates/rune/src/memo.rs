@@ -563,7 +563,7 @@ pub fn memo(id: impl Into<String>, version: impl Hash, build: impl FnOnce() -> E
     }
     let step = SCOPES.with_borrow_mut(|scopes| {
         let Some(s) = scopes.last_mut() else { return Step::Plain };
-        let version = hash_of(&(version, s.env));
+        let version = hash_of(&(version, s.env, crate::tok::text_scale().to_bits()));
         let name: &str = if let Some(p) = s.path.last() {
             s.cache.id_scratch.clear();
             s.cache.id_scratch.reserve(p.len() + 1 + key.len());
