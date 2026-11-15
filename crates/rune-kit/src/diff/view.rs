@@ -38,6 +38,8 @@ static PLUS: Icon = Icon {
 
 /// Width of the coloured bar that marks an added or removed line.
 const BAR: f32 = 3.0;
+/// The "+" or "−" column [`DiffView::signs`] adds after the line numbers.
+const SIGN_W: f32 = 14.0;
 /// Space between the line numbers and the code, and after the code.
 const CODE_PAD: (f32, f32) = (12.0, 24.0);
 
@@ -65,6 +67,7 @@ pub struct DiffView<S> {
     on_select: Option<Rc<dyn Fn(&mut S, Option<LineRange>, &mut Tx)>>,
     on_comment: Option<Rc<dyn Fn(&mut S, LineRange, &mut Tx)>>,
     on_visible_file: Option<Rc<dyn Fn(&mut S, usize)>>,
+    signs: bool,
 }
 
 impl<S: 'static> DiffView<S> {
@@ -78,6 +81,7 @@ impl<S: 'static> DiffView<S> {
             on_select: None,
             on_comment: None,
             on_visible_file: None,
+            signs: false,
         }
     }
 
@@ -117,6 +121,13 @@ impl<S: 'static> DiffView<S> {
     /// file tree.
     pub fn on_visible_file(mut self, f: impl Fn(&mut S, usize) + 'static) -> Self {
         self.on_visible_file = Some(Rc::new(f));
+        self
+    }
+
+    /// Marks each added line "+" and each removed one "−" beside its numbers, so a line's kind
+    /// is read without its colour (off by default; the bar and tint carry it).
+    pub fn signs(mut self, on: bool) -> Self {
+        self.signs = on;
         self
     }
 
@@ -319,7 +330,27 @@ impl<S: 'static> View<S> {
     fn content_width(&self, st: &DiffState) -> f32 {
         let l = &self.look;
         let digits = (0..st.files().len()).map(|f| st.digits(f)).max().unwrap_or(3);
-        BAR + 2.0 * l.number_w(digits) + st.columns() as f32 * l.adv + CODE_PAD.0 + CODE_PAD.1
+        BAR + 2.0 * l.number_w(digits) + self.sign_w() + st.columns() as f32 * l.adv + CODE_PAD.0 + CODE_PAD.1
+    }
+
+    /// How wide the sign column is: nothing unless [`DiffView::signs`] asked for it.
+    fn sign_w(&self) -> f32 {
+        if self.d.signs { SIGN_W } else { 0.0 }
+    }
+
+    /// The "+" or "−" cell after a line's numbers, when signs are on.
+    fn sign(&self, kind: LineKind, selected: bool) -> Option<El> {
+        if !self.d.signs {
+            return None;
+        }
+        let l = &self.look;
+        let mark = match kind {
+            LineKind::Added => "+",
+            LineKind::Removed => "−",
+            LineKind::Context => "",
+        };
+        let color = if selected { l.text } else { l.tints(kind).map_or(l.faint, |t| t.number) };
+        Some(row().key("sign").w(SIGN_W).min_h(LINE_H).self_stretch().justify_center().items_start().a11y_hidden().child(text(mark).font(l.font).color(color)))
     }
 
     /// The most a full-width part of a row (a header, an annotation) spans: the viewport, not
@@ -445,6 +476,9 @@ impl<S: 'static> View<S> {
             .child(self.bar(c.kind))
             .child(self.number(st, i, f, c.old, Side::Old, c.kind, selected, digits).key("no"))
             .child(self.number(st, i, f, c.new, Side::New, c.kind, selected, digits).key("nn"));
+        if let Some(sign) = self.sign(c.kind, selected) {
+            gutter = gutter.child(sign);
+        }
         if self.d.on_comment.is_some() {
             let at = c.new.map(|n| LineRef::new(Side::New, n)).or(c.old.map(|n| LineRef::new(Side::Old, n)));
             if let Some(at) = at {
@@ -494,6 +528,7 @@ impl<S: 'static> View<S> {
                 .label(cell.label())
                 .child(self.bar(kind))
                 .child(self.number(st, i, f, n, side, kind, selected, digits).key("n"))
+                .children(self.sign(kind, selected))
                 .child(self.code(st, f, &cell, copy, side, &st.keys[i]).key("code"));
             if let (Some(n), true) = (n, self.d.on_comment.is_some()) {
                 h = h.child(self.plus(f, LineRef::new(side, n)).absolute(BAR + l.number_w(digits) - 10.0, 2.0));
@@ -623,7 +658,7 @@ impl<S: 'static> View<S> {
 
     fn gutter_w(&self, st: &DiffState, f: usize) -> f32 {
         let n = self.look.number_w(st.digits(f));
-        BAR + if st.mode() == DiffMode::Unified { 2.0 * n } else { n }
+        BAR + self.sign_w() + if st.mode() == DiffMode::Unified { 2.0 * n } else { n }
     }
 
     /// The unchanged lines between two hunks, folded: buttons to show more, and the next

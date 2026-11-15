@@ -820,3 +820,27 @@ fn diff_50k_time() {
     jumps.sort_by(f64::total_cmp);
     println!("jump 150k-300k pt: p50 {:.2} ms, max {:.2} ms", jumps[10], jumps[19]);
 }
+
+fn signed_view(s: &App, _: &mut Cx<App>) -> El {
+    let k = Kit::neutral(true);
+    col().w_full().h_full().child(DiffView::new(|s: &App| &s.diff, |s: &mut App| &mut s.diff).signs(true).build(s, &k))
+}
+
+#[test]
+fn signs_mark_added_and_removed_lines_beside_their_numbers_and_move_the_code_over() {
+    let drawn = |signed: bool| {
+        let app = App { diff: tabbed(), selections: Vec::new(), comments: Vec::new(), visible: Vec::new(), actions: Vec::new() };
+        let mut rt = Runtime::new(app, if signed { signed_view } else { view }, (800.0, 400.0), Env::new(true, 2.0));
+        rt.frame(0.0);
+        settle(&mut rt);
+        rt
+    };
+    let marks = |rt: &Runtime<App>| -> Vec<String> {
+        rt.elements().into_iter().filter(|e| !e.exiting && e.path.contains("/sign")).filter_map(|e| e.text).filter(|t| !t.is_empty()).collect()
+    };
+    let (plain, signed) = (drawn(false), drawn(true));
+    assert!(marks(&plain).is_empty(), "off unless asked for");
+    assert_eq!(marks(&signed), ["−", "+"], "the removed line, then the added one");
+    let x = |rt: &Runtime<App>| find(rt, "df0.c2/code").rect[0];
+    assert_eq!(x(&signed) - x(&plain), 14.0, "the code moves over by the sign's column");
+}
