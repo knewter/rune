@@ -360,6 +360,15 @@ impl<S: 'static> Runtime<S> {
             self.enter_links(order[next], ev.mods.shift);
             return true;
         }
+        let toward = if self.spatial_arrows && !ev.mods.shift { super::spatial::Toward::of(&ev.key) } else { None };
+        // A remote's first arrow focuses the first control, as Tab would.
+        if toward.is_some() && self.focused_index().is_none() {
+            let Some(&first) = self.tab_order().first() else { return false };
+            let path = self.nodes[first].path.clone();
+            self.set_focus(Some(path.clone()), true);
+            tx.scroll_to.push(crate::runtime::ScrollReveal::into_view(None, path));
+            return true;
+        }
         let Some(i) = self.focused_index() else { return false; };
         if !self.can_focus(i) { return false; }
         // Past Tab, a Shift-modified key navigates and presses nothing: it goes on to the app.
@@ -378,6 +387,22 @@ impl<S: 'static> Runtime<S> {
                 f(states!(self), ev.key == Key::End, tx);
                 return true;
             }
+        }
+        // A remote's arrows go where the controls are drawn (`spatial.rs`); a field keeps its
+        // own but for Up and Down out of a single line, and a menu's highlight keeps moving
+        // through the menu. At an edge the key goes on.
+        let field_keeps = self.nodes[i].input.as_ref()
+            .is_some_and(|f| !f.single_line || !matches!(ev.key, Key::Up | Key::Down));
+        if let Some(dir) = toward && !field_keeps && self.nodes[i].focus.highlight.is_none() {
+            let Some(next) = self.spatial_target(i, dir) else { return false };
+            let follows = self.group(next).is_some_and(|g| self.group(i) == Some(g)
+                && (matches!(self.nodes[next].role, "radio" | "tab") || self.nodes[g].focus.follows));
+            let action = follows.then(|| self.nodes[next].handlers.on_press.clone()).flatten();
+            let path = self.nodes[next].path.clone();
+            self.set_focus(Some(path.clone()), true);
+            tx.scroll_to.push(crate::runtime::ScrollReveal::into_view(None, path));
+            if let Some(f) = action { f(states!(self), tx); }
+            return true;
         }
         // A focused field inside a list row (an inline rename) keeps its letters and arrows.
         if self.nodes[i].input.is_none() && let Some(g) = self.group(i) {

@@ -102,6 +102,8 @@ pub(crate) use blend::{apron_key, glyph, icon_inst, premul};
 
 #[path = "runtime/input/focus.rs"]
 mod focus;
+#[path = "runtime/input/spatial.rs"]
+mod spatial;
 #[path = "runtime/input/physical.rs"]
 mod physical_dispatch;
 #[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(unused_imports))]
@@ -584,6 +586,8 @@ pub struct Runtime<S: 'static> {
     full_keyboard_access: bool,
     /// `App::tab_visits_controls`: Tab visits every control whatever `full_keyboard_access` says.
     tab_visits_controls: bool,
+    /// `Runtime::set_spatial_arrows`: arrows move focus by position, as a TV remote's do.
+    spatial_arrows: bool,
     modal_stack: Vec<(String, Option<String>)>,
     /// Focus when the running commit began, before a new view's focus request applied: what a
     /// modal that opens in this commit returns focus to.
@@ -954,6 +958,7 @@ impl<S: 'static> Runtime<S> {
             modifier_keys: Default::default(),
             full_keyboard_access: true,
             tab_visits_controls: false,
+            spatial_arrows: false,
             modal_stack: Vec::new(),
             focus_before_commit: None,
             last_focused: None,
