@@ -5,8 +5,12 @@
 //! the press. A second finger makes the two a pinch: the first finger's press and pan are
 //! let go, and the change in the fingers' distance reaches the `El::on_magnify` handlers
 //! under their midpoint, as a trackpad's pinch does, until either lifts. Further fingers are
-//! ignored meanwhile.
+//! ignored meanwhile. A finger held still on selectable text selects instead
+//! (`touch_select.rs`).
 use super::*;
+
+#[path = "touch_select.rs"]
+mod touch_select;
 use crate::{GesturePhase, MagnifyEvent};
 
 /// How far (points) a finger travels before its touch is a drag or a pan, not a tap.
@@ -30,6 +34,8 @@ pub(super) struct Touch {
     pub(super) scroll: Option<scroll_touch::TouchScroll>,
     finger: Option<Finger>,
     pinch: Option<Pinch>,
+    /// When (runtime clock) the finger down now selects instead of pressing.
+    long_due: Option<f64>,
 }
 
 /// Two fingers pinching: where each is, and their distance at the last event.
@@ -71,6 +77,8 @@ enum Mode {
     Pending,
     Drag,
     Pan,
+    /// Selecting text: after a long press, or holding a selection handle.
+    Select,
 }
 
 impl<S: 'static> Runtime<S> {
@@ -112,10 +120,15 @@ impl<S: 'static> Runtime<S> {
             return;
         }
         if self.touch.finger.is_some() { return; }
+        if self.take_handle(x, y) {
+            self.touch.finger = Some(Finger { id, origin: (x, y), at_point: (x, y), last: 0.0, at: time, velocity: 0.0, mode: Mode::Select, scroll: None, horizontal: false });
+            return;
+        }
         let scroll = self.touch_scroll_start(x, y);
         self.pointer_move(x, y);
         self.pointer_down(x, y);
         self.touch.finger = Some(Finger { id, origin: (x, y), at_point: (x, y), last: 0.0, at: time, velocity: 0.0, mode: Mode::Pending, scroll, horizontal: false });
+        self.arm_long_press();
     }
 
     /// A pinching finger moved: the change in spread since the last event, at the middle.
@@ -150,6 +163,7 @@ impl<S: 'static> Runtime<S> {
         match (f.mode, f.scroll) {
             (Mode::Pan, Some(scroll)) => self.touch_scroll_move(scroll, along),
             (Mode::Drag, _) => self.pointer_move(x, y),
+            (Mode::Select, _) => self.selection_drag(x, y),
             _ => {}
         }
     }
@@ -162,6 +176,12 @@ impl<S: 'static> Runtime<S> {
             return;
         }
         let Some(f) = self.touch.finger.take_if(|f| f.id == id) else { return };
+        if f.mode == Mode::Select {
+            // The selection stays, cancelled or not; nothing was pressed to release.
+            self.text_sel.dragging = false;
+            self.pointer_leave();
+            return;
+        }
         let pan = f.mode == Mode::Pan;
         let velocity = if pan && !cancelled && time - f.at < FLING_HOLD { f.velocity } else { 0.0 };
         self.touch_scroll_end(f.scroll, velocity);

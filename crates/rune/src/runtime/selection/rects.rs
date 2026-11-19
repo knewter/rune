@@ -41,7 +41,7 @@ pub(crate) fn boxes_moved(a: &[[f32; 4]], b: &[[f32; 4]]) -> bool {
 
 impl<S: 'static> Runtime<S> {
     /// The selection's line boxes laid out in the last commit's nodes.
-    pub(super) fn selection_boxes(&self) -> Vec<[f32; 4]> {
+    pub(in crate::runtime) fn selection_boxes(&self) -> Vec<[f32; 4]> {
         let mut out = Vec::new();
         for (i, a, b) in self.selection_ranges() { self.text_boxes(&self.nodes, i, a, b, &mut out); }
         out
