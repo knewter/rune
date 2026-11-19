@@ -46,12 +46,23 @@ esac
 llvm=$NDK_HOME/toolchains/llvm/prebuilt/$host/bin
 api=26 # minSdkVersion: AAudio and the NDK's current floor for 64-bit
 
-target=aarch64-linux-android
-export CC_aarch64_linux_android="$llvm/aarch64-linux-android$api-clang"
-export CXX_aarch64_linux_android="$llvm/aarch64-linux-android$api-clang++"
-export AR_aarch64_linux_android="$llvm/llvm-ar"
-export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$llvm/aarch64-linux-android$api-clang"
+# RUNE_ANDROID_TARGET=x86_64-linux-android builds for an x86_64 emulator.
+target=${RUNE_ANDROID_TARGET:-aarch64-linux-android}
+case "$target" in
+  aarch64-linux-android) abi=arm64-v8a ;;
+  x86_64-linux-android) abi=x86_64 ;;
+  *) echo "unsupported target $target" >&2; exit 2 ;;
+esac
+triple_env=$(echo "$target" | tr - _)
+triple_upper=$(echo "$triple_env" | tr '[:lower:]' '[:upper:]')
+export "CC_$triple_env=$llvm/$target$api-clang"
+export "CXX_$triple_env=$llvm/$target$api-clang++"
+export "AR_$triple_env=$llvm/llvm-ar"
+export "CARGO_TARGET_${triple_upper}_LINKER=$llvm/$target$api-clang"
 export ANDROID_NDK_ROOT="$NDK_HOME"
+# Android 15+ devices with 16 KB pages refuse (or warn on) a library whose LOAD segments are
+# 4 KB aligned.
+export "CARGO_TARGET_${triple_upper}_RUSTFLAGS=-C link-arg=-Wl,-z,max-page-size=16384"
 
 cd "$root"
 flag=--release
@@ -62,11 +73,13 @@ lib=$(echo "$example" | tr - _)
 target_dir=$(cargo metadata --format-version 1 --no-deps | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')
 so=$target_dir/$target/$profile/lib$lib.so
 out=$target_dir/android
-stage=$out/$example
-rm -rf "$stage" && mkdir -p "$stage/lib/arm64-v8a"
-cp "$so" "$stage/lib/arm64-v8a/"
+mkdir -p "$out"
+# A fresh staging directory each build, so nothing from an earlier build rides along.
+stage=$(mktemp -d "$out/$example.XXXXXX")
+mkdir -p "$stage/lib/$abi"
+cp "$so" "$stage/lib/$abi/"
 # Strip debug info: a debug build's library is hundreds of MB otherwise.
-"$llvm/llvm-strip" --strip-debug "$stage/lib/arm64-v8a/lib$lib.so"
+"$llvm/llvm-strip" --strip-debug "$stage/lib/$abi/lib$lib.so"
 
 "$build_tools/aapt2" link -o "$stage/base.apk" --manifest "$dir/AndroidManifest.xml" -I "$platform/android.jar"
 (cd "$stage" && zip -q -r base.apk lib)
