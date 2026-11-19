@@ -143,6 +143,69 @@ pub struct EventLoop<T: 'static> {
     cause: StartCause,
     ignore_volume_keys: bool,
     combining_accent: Option<char>,
+    /// The density and night mode last reported, so `ConfigChanged` reports only a change:
+    /// `android_app.config()` is shared, so an old copy of it would read the new values too.
+    scale_factor: f64,
+    theme: Option<Theme>,
+}
+
+/// The night mode of the activity's configuration as winit's theme; None when it is undefined.
+///
+/// Read from the activity's `Resources` over JNI. `AndroidApp::config()` is copied from the
+/// `AssetManager` the activity started with, and a night-mode change while the activity runs
+/// gives it new resources rather than updating that one, so the copy keeps the launch value.
+fn config_theme(app: &AndroidApp) -> Option<Theme> {
+    use android_activity::ndk::configuration::UiModeNight;
+    if let Some(theme) = java_theme(app) {
+        return theme;
+    }
+    match app.config().ui_mode_night() {
+        UiModeNight::Yes => Some(Theme::Dark),
+        UiModeNight::No => Some(Theme::Light),
+        _ => None,
+    }
+}
+
+/// `getResources().getConfiguration().uiMode & UI_MODE_NIGHT_MASK`; None when the call fails.
+fn java_theme(app: &AndroidApp) -> Option<Option<Theme>> {
+    use jni::objects::JObject;
+    use jni::{jni_sig, jni_str};
+    let activity = app.activity_as_ptr() as jni::sys::jobject;
+    if activity.is_null() {
+        return None;
+    }
+    // SAFETY: the pointer is the process's `JavaVM`, which outlives the activity.
+    let vm = unsafe { jni::JavaVM::from_raw(app.vm_as_ptr().cast()) };
+    let ui_mode = vm
+        .attach_current_thread(|env| -> jni::errors::Result<i32> {
+            // SAFETY: a global reference `AndroidApp` holds while the activity exists.
+            let activity = unsafe { env.as_cast_raw::<JObject<'_>>(&activity)? };
+            let resources = env
+                .call_method(
+                    &*activity,
+                    jni_str!("getResources"),
+                    jni_sig!(() -> android.content.res.Resources),
+                    &[],
+                )?
+                .l()?;
+            let config = env
+                .call_method(
+                    &resources,
+                    jni_str!("getConfiguration"),
+                    jni_sig!(() -> android.content.res.Configuration),
+                    &[],
+                )?
+                .l()?;
+            env.get_field(&config, jni_str!("uiMode"), jni_sig!("I"))?.i()
+        })
+        .map_err(|err| warn!("uiMode over JNI: {err:?}"))
+        .ok()?;
+    // Configuration.UI_MODE_NIGHT_MASK, _NO and _YES.
+    Some(match ui_mode & 0x30 {
+        0x20 => Some(Theme::Dark),
+        0x10 => Some(Theme::Light),
+        _ => None,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -192,6 +255,8 @@ impl<T: 'static> EventLoop<T> {
             cause: StartCause::Init,
             ignore_volume_keys: attributes.ignore_volume_keys,
             combining_accent: None,
+            scale_factor: MonitorHandle::new(android_app.clone()).scale_factor(),
+            theme: config_theme(&android_app),
         })
     }
 
@@ -243,10 +308,22 @@ impl<T: 'static> EventLoop<T> {
                     );
                 },
                 MainEvent::ConfigChanged { .. } => {
+                    let theme = config_theme(&self.android_app);
+                    if theme != self.theme {
+                        self.theme = theme;
+                        if let Some(theme) = theme {
+                            let event = event::Event::WindowEvent {
+                                window_id: window::WindowId(WindowId),
+                                event: event::WindowEvent::ThemeChanged(theme),
+                            };
+                            callback(event, self.window_target());
+                        }
+                    }
                     let monitor = MonitorHandle::new(self.android_app.clone());
-                    let old_scale_factor = monitor.scale_factor();
+                    let old_scale_factor = self.scale_factor;
                     let scale_factor = monitor.scale_factor();
-                    if (scale_factor - old_scale_factor).abs() < f64::EPSILON {
+                    self.scale_factor = scale_factor;
+                    if (scale_factor - old_scale_factor).abs() >= f64::EPSILON {
                         let new_inner_size = Arc::new(Mutex::new(
                             MonitorHandle::new(self.android_app.clone()).size(),
                         ));
@@ -287,9 +364,10 @@ impl<T: 'static> EventLoop<T> {
                     warn!("TODO: forward onStop notification to application");
                 },
                 MainEvent::Destroy => {
-                    // XXX: maybe exit mainloop to drop things before being
-                    // killed by the OS?
-                    warn!("TODO: forward onDestroy notification to application");
+                    // `NativeActivity.onDestroy` blocks the Java main thread until
+                    // `android_main` returns, so the loop has to end here or the app hangs.
+                    debug!("App Destroyed - exiting the event loop");
+                    self.window_target.p.exit();
                 },
                 MainEvent::InsetsChanged { .. } => {
                     // XXX: how to forward this state to applications?
@@ -433,6 +511,10 @@ impl<T: 'static> EventLoop<T> {
                     {
                         input_status = InputStatus::Unhandled
                     },
+                    // Back goes to the activity, which finishes as any Android app does on
+                    // Back. Handled here, it never reached the activity and the app could not
+                    // be left. An app that wants Back needs a way to claim it first.
+                    Keycode::Back => input_status = InputStatus::Unhandled,
                     keycode => {
                         let state = match key.action() {
                             KeyAction::Down => event::ElementState::Pressed,
@@ -1030,7 +1112,7 @@ impl Window {
     pub fn set_theme(&self, _theme: Option<Theme>) {}
 
     pub fn theme(&self) -> Option<Theme> {
-        None
+        config_theme(&self.app)
     }
 
     pub fn set_content_protected(&self, _protected: bool) {}

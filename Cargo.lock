@@ -5167,6 +5167,7 @@ dependencies = [
  "core-graphics",
  "cursor-icon",
  "dpi",
+ "jni",
  "js-sys",
  "libc",
  "memmap2",
