@@ -336,4 +336,39 @@ impl<S: 'static> Runtime<S> {
     pub fn has_focus(&self) -> bool {
         self.focused.is_some()
     }
+
+    /// The focused text field as a platform text service sees it, read from the app's state so
+    /// it holds the edits of this frame: `None` when no field has focus. A host whose input
+    /// method keeps its own copy of the text (Android's `InputConnection`) compares it with
+    /// that copy each frame and sends changes back with [`Ime::Replace`](crate::Ime::Replace).
+    pub fn focused_field(&mut self) -> Option<FocusedField> {
+        let path = self.focused.clone()?;
+        let (access, single_line, secure, submits) =
+            self.focused_input().map(|i| (i.access.clone(), i.single_line, i.edit.is_secure(), i.submit.is_some()))?;
+        let read = |e: &crate::edit::TextEdit| (e.text.clone(), e.anchor, e.focus, e.preedit.clone());
+        let (text, anchor, focus, preedit) = match access {
+            Some(access) => read(access(states!(self))),
+            None => read(&self.focused_input()?.edit),
+        };
+        let clamp = |b: usize| crate::edit::TextEdit::clamp_char_boundary(&text, b);
+        let (anchor, focus) = (clamp(anchor), clamp(focus));
+        Some(FocusedField { path, text, anchor, focus, preedit, single_line, secure, submits })
+    }
+}
+
+/// [`Runtime::focused_field`]: the focused text field's text, selection (byte offsets) and
+/// composition, and what kind of field it is.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FocusedField {
+    /// The field's element path: a new path is a different field.
+    pub path: String,
+    pub text: String,
+    pub anchor: usize,
+    pub focus: usize,
+    /// The input method's composition drawn at the caret, not yet part of `text`.
+    pub preedit: Option<(String, Option<(usize, usize)>)>,
+    pub single_line: bool,
+    pub secure: bool,
+    /// Return submits it (`El::on_submit`), so a soft keyboard's action key can say Send.
+    pub submits: bool,
 }

@@ -16,12 +16,22 @@ pub enum Ime {
     /// on and off.
     Enabled,
     Disabled,
+    /// The platform's whole copy of the field, as an input method that edits its own buffer
+    /// reports it (Android's `Editable` behind an `InputConnection`): the text without the
+    /// composition, the selection as byte offsets in it, and the composition drawn at the caret.
+    /// The field takes the difference from what it holds as one edit, so undo and change
+    /// handlers see an ordinary edit.
+    Replace { text: String, anchor: usize, focus: usize, preedit: Option<(String, Option<(usize, usize)>)> },
 }
 
 impl Drop for Ime {
     fn drop(&mut self) {
         match self {
             Self::Preedit(text, _) | Self::Commit(text) => text.zeroize(),
+            Self::Replace { text, preedit, .. } => {
+                text.zeroize();
+                if let Some((p, _)) = preedit { p.zeroize(); }
+            }
             Self::Enabled | Self::Disabled => {}
         }
     }

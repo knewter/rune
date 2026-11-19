@@ -320,7 +320,9 @@ impl TextEdit {
     }
 
     pub fn ime(&mut self, ev: &Ime) -> EditOutcome {
-        if self.secure { self.clear_preedit(); return EditOutcome::default(); }
+        // A secure field shows no composition; a platform that edits its own copy of the field
+        // (`Ime::Replace`) still delivers its text.
+        if self.secure && !matches!(ev, Ime::Replace { .. }) { self.clear_preedit(); return EditOutcome::default(); }
         self.sync_invariants();
         self.break_history_group();
         match ev {
@@ -331,6 +333,22 @@ impl TextEdit {
                 self.preedit = None;
                 let s = self.sanitize(s);
                 self.insert(&s);
+            }
+            Ime::Replace { text, anchor, focus, preedit } => {
+                // Only the middle that differs is replaced, so marks and pills outside it stay.
+                let old = self.text.as_str();
+                let mut start = old.bytes().zip(text.bytes()).take_while(|(a, b)| a == b).count();
+                while !old.is_char_boundary(start) || !text.is_char_boundary(start) { start -= 1; }
+                let max_suffix = old.len().min(text.len()) - start;
+                let mut suffix = old.bytes().rev().zip(text.bytes().rev()).take(max_suffix).take_while(|(a, b)| a == b).count();
+                while !old.is_char_boundary(old.len() - suffix) || !text.is_char_boundary(text.len() - suffix) { suffix -= 1; }
+                let old_end = old.len() - suffix;
+                if start != old_end || start != text.len() - suffix {
+                    let middle = self.sanitize(&text[start..text.len() - suffix]);
+                    self.replace((start, old_end), &middle, false);
+                }
+                self.set_selection(*anchor, *focus);
+                self.preedit = preedit.as_ref().filter(|(p, _)| !p.is_empty() && !self.secure).cloned();
             }
             Ime::Enabled | Ime::Disabled => {}
         }
