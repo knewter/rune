@@ -1,0 +1,1 @@
+- Touch: two fingers pinch. A second finger cancels the first's press and pan and sends `on_magnify` a gesture at the fingers' midpoint, scaled by their spread, until either lifts; before, the second finger was ignored.

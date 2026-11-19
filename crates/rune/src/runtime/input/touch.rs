@@ -2,8 +2,12 @@
 //! button. It presses where it lands, so a tap clicks; dragging an element that drags
 //! (`El::on_drag`: a slider, a scroll bar) drags it; any other drag pans the scroll viewport
 //! under the finger (`runtime/scroll/touch.rs`), flinging it on with momentum, and cancels
-//! the press. Further fingers are ignored while one is down.
+//! the press. A second finger makes the two a pinch: the first finger's press and pan are
+//! let go, and the change in the fingers' distance reaches the `El::on_magnify` handlers
+//! under their midpoint, as a trackpad's pinch does, until either lifts. Further fingers are
+//! ignored meanwhile.
 use super::*;
+use crate::{GesturePhase, MagnifyEvent};
 
 /// How far (points) a finger travels before its touch is a drag or a pan, not a tap.
 const TOUCH_SLOP: f32 = 8.0;
@@ -25,11 +29,32 @@ pub enum TouchPhase {
 pub(super) struct Touch {
     pub(super) scroll: Option<scroll_touch::TouchScroll>,
     finger: Option<Finger>,
+    pinch: Option<Pinch>,
+}
+
+/// Two fingers pinching: where each is, and their distance at the last event.
+struct Pinch {
+    fingers: [(u64, (f32, f32)); 2],
+    distance: f32,
+}
+
+impl Pinch {
+    fn middle(&self) -> (f32, f32) {
+        let [(_, a), (_, b)] = self.fingers;
+        ((a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0)
+    }
+
+    fn spread(&self) -> f32 {
+        let [(_, a), (_, b)] = self.fingers;
+        (a.0 - b.0).hypot(a.1 - b.1)
+    }
 }
 
 struct Finger {
     id: u64,
     origin: (f32, f32),
+    /// Where it is now, for a pinch a second finger starts.
+    at_point: (f32, f32),
     last: f32,
     at: f64,
     /// Points per second along the pan's axis.
@@ -61,7 +86,7 @@ impl<S: 'static> Runtime<S> {
 
     /// Whether a finger is down: a host ignores the mouse events its system makes up from it.
     pub fn touching(&self) -> bool {
-        self.touch.finger.is_some()
+        self.touch.finger.is_some() || self.touch.pinch.is_some()
     }
 
     /// The surface went away under a finger: end it as a cancel, so the press doesn't stay down
@@ -73,14 +98,42 @@ impl<S: 'static> Runtime<S> {
     }
 
     fn touch_down(&mut self, id: u64, x: f32, y: f32, time: f64) {
+        if self.touch.pinch.is_some() { return; }
+        if let Some(first) = self.touch.finger.take_if(|f| f.id != id) {
+            // A second finger: what the first pressed or panned is let go, unclicked.
+            self.touch_scroll_end(first.scroll, 0.0);
+            self.cancel_pointer();
+            self.pointer_leave();
+            let pinch = Pinch { fingers: [(first.id, first.at_point), (id, (x, y))], distance: 0.0 };
+            let distance = pinch.spread();
+            let (mx, my) = pinch.middle();
+            self.touch.pinch = Some(Pinch { distance, ..pinch });
+            self.magnify_event(MagnifyEvent::new(0.0).at(mx, my).phase(GesturePhase::Began));
+            return;
+        }
         if self.touch.finger.is_some() { return; }
         let scroll = self.touch_scroll_start(x, y);
         self.pointer_move(x, y);
         self.pointer_down(x, y);
-        self.touch.finger = Some(Finger { id, origin: (x, y), last: 0.0, at: time, velocity: 0.0, mode: Mode::Pending, scroll, horizontal: false });
+        self.touch.finger = Some(Finger { id, origin: (x, y), at_point: (x, y), last: 0.0, at: time, velocity: 0.0, mode: Mode::Pending, scroll, horizontal: false });
+    }
+
+    /// A pinching finger moved: the change in spread since the last event, at the middle.
+    fn pinch_move(&mut self, id: u64, x: f32, y: f32) {
+        let Some(pinch) = self.touch.pinch.as_mut() else { return };
+        let Some(finger) = pinch.fingers.iter_mut().find(|(f, _)| *f == id) else { return };
+        finger.1 = (x, y);
+        let (spread, before) = (pinch.spread(), pinch.distance);
+        let (mx, my) = pinch.middle();
+        // Fingers on top of each other measure nothing to scale by.
+        if before < 1.0 || spread < 1.0 { return; }
+        pinch.distance = spread;
+        self.magnify_event(MagnifyEvent::new(spread / before - 1.0).at(mx, my).phase(GesturePhase::Moved));
     }
 
     fn touch_move(&mut self, id: u64, x: f32, y: f32, time: f64) {
+        if self.touch.pinch.is_some() { return self.pinch_move(id, x, y); }
+        if let Some(f) = self.touch.finger.as_mut().filter(|f| f.id == id) { f.at_point = (x, y); }
         let Some(f) = self.touch.finger.as_ref().filter(|f| f.id == id) else { return };
         let (dx, dy) = (x - f.origin.0, y - f.origin.1);
         if f.mode == Mode::Pending && dx.hypot(dy) > TOUCH_SLOP {
@@ -102,6 +155,12 @@ impl<S: 'static> Runtime<S> {
     }
 
     fn touch_up(&mut self, id: u64, x: f32, y: f32, time: f64, cancelled: bool) {
+        if let Some(pinch) = self.touch.pinch.take_if(|p| p.fingers.iter().any(|(f, _)| *f == id)) {
+            // Either finger lifting ends it; the other presses nothing when it lifts.
+            let (mx, my) = pinch.middle();
+            self.magnify_event(MagnifyEvent::new(0.0).at(mx, my).phase(GesturePhase::Ended));
+            return;
+        }
         let Some(f) = self.touch.finger.take_if(|f| f.id == id) else { return };
         let pan = f.mode == Mode::Pan;
         let velocity = if pan && !cancelled && time - f.at < FLING_HOLD { f.velocity } else { 0.0 };
@@ -216,4 +275,58 @@ mod tests {
         assert!(rt.state.taps.is_empty());
         assert!(!rt.touching());
     }
+
+    #[derive(Default)]
+    struct Zoom { taps: usize, scale: f32, phases: Vec<GesturePhase> }
+
+    fn zoomable(_: &Zoom, _: &mut Cx<Zoom>) -> El {
+        el().key("canvas").size(300.0, 300.0)
+            .on_press(|s: &mut Zoom| s.taps += 1)
+            .on_magnify(|s: &mut Zoom, e: MagnifyEvent, _| { s.scale *= 1.0 + e.delta; s.phases.push(e.phase); true })
+    }
+
+    #[test]
+    fn two_fingers_pinch_the_magnify_handlers_and_press_nothing() {
+        let mut rt = Runtime::new(Zoom { scale: 1.0, ..Zoom::default() }, zoomable, (300.0, 300.0), Env::default());
+        rt.frame(0.0);
+        rt.touch(1, TouchPhase::Started, 100.0, 150.0, 0.0);
+        rt.touch(2, TouchPhase::Started, 200.0, 150.0, 0.01);
+        assert!(rt.touching());
+        for step in 1..=4 {
+            let spread = 50.0 + 25.0 * step as f32;
+            rt.touch(1, TouchPhase::Moved, 150.0 - spread, 150.0, 0.01 + step as f64 * 0.01);
+            rt.touch(2, TouchPhase::Moved, 150.0 + spread, 150.0, 0.015 + step as f64 * 0.01);
+            rt.frame(1.0 / 60.0);
+        }
+        rt.touch(2, TouchPhase::Ended, 300.0, 150.0, 0.1);
+        rt.touch(1, TouchPhase::Moved, 10.0, 150.0, 0.11);
+        rt.touch(1, TouchPhase::Ended, 10.0, 150.0, 0.12);
+        rt.frame(1.0 / 60.0);
+        assert!((rt.state.scale - 3.0).abs() < 0.01, "the spread went from 100 to 300 points: {}", rt.state.scale);
+        assert_eq!(rt.state.phases.first(), Some(&GesturePhase::Began));
+        assert_eq!(rt.state.phases.last(), Some(&GesturePhase::Ended));
+        assert_eq!(rt.state.taps, 0, "neither finger clicked what it landed on");
+        assert!(!rt.touching());
+        // One finger again is a tap.
+        rt.touch(3, TouchPhase::Started, 150.0, 150.0, 1.0);
+        rt.touch(3, TouchPhase::Ended, 150.0, 150.0, 1.05);
+        rt.frame(1.0 / 60.0);
+        assert_eq!(rt.state.taps, 1);
+    }
+
+    #[test]
+    fn a_second_finger_ends_the_first_ones_pan_without_a_fling() {
+        let mut rt = rig();
+        rt.touch(1, TouchPhase::Started, 100.0, 250.0, 0.0);
+        rt.touch(1, TouchPhase::Moved, 100.0, 200.0, 0.01);
+        let panned = offset(&rt);
+        rt.touch(2, TouchPhase::Started, 150.0, 250.0, 0.02);
+        rt.touch(1, TouchPhase::Moved, 100.0, 100.0, 0.03);
+        rt.touch(1, TouchPhase::Ended, 100.0, 100.0, 0.035);
+        rt.touch(2, TouchPhase::Ended, 150.0, 250.0, 0.04);
+        for _ in 0..30 { rt.frame(1.0 / 60.0); }
+        assert_eq!(offset(&rt), panned, "the list stays where the pan left it");
+        assert!(rt.state.taps.is_empty());
+    }
 }
+
