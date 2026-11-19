@@ -93,7 +93,16 @@ fn attach_accessibility(env: &mut JNIEnv, host: &mut Host) {
     host.adapter = None;
     host.link = AccessibilityLink::with_wake(waker());
     let (activation, actions) = host.link.handlers();
-    host.adapter = Some(InjectingAdapter::new(env, view.as_obj(), activation, actions));
+    host.adapter = Some(InjectingAdapter::new(env, view.as_obj(), activation, Logged(actions)));
+}
+
+/// Rune's action handler, logging what an assistive client asked for (`adb logcat -s RuneView`).
+struct Logged(rune::AccessibilityActions);
+impl rune::accesskit::ActionHandler for Logged {
+    fn do_action(&mut self, request: rune::accesskit::ActionRequest) {
+        log(&format!("a11y action {:?} on {:?}", request.action, request.target_node));
+        self.0.do_action(request);
+    }
 }
 
 fn utf16_len(s: &str) -> usize { s.encode_utf16().count() }

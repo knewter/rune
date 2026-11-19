@@ -16,4 +16,6 @@
       </intent-filter>
     </activity>
   </application>
+  <!-- An accessibility client for device checks (A11yProbe.kt); it instruments this app. -->
+  <instrumentation android:name=".A11yProbe" android:targetPackage="systems.rune.androidtest"/>
 </manifest>
