@@ -69,6 +69,8 @@ pub struct LayerHost<S: 'static> {
     rt: Runtime<S>,
     clock: FrameClock,
     suspended: bool,
+    /// Whether the embedding host shows file dialogs itself ([`LayerHost::host_file_dialogs`]).
+    hosts_file_dialogs: bool,
 }
 
 impl<S: 'static> LayerHost<S> {
@@ -172,6 +174,7 @@ impl<S: 'static> LayerHost<S> {
             rt,
             clock: FrameClock::new(now),
             suspended: viewport.0 <= 0.0 || viewport.1 <= 0.0,
+            hosts_file_dialogs: false,
         })
     }
 
@@ -185,6 +188,32 @@ impl<S: 'static> LayerHost<S> {
 
     pub fn runtime(&self) -> &Runtime<S> {
         &self.rt
+    }
+
+    /// Lets the embedding host show the file dialogs handlers ask for ([`Tx::open_file`],
+    /// [`Tx::save_file`], [`Tx::open_folder`]) with its platform's own pickers (Android's
+    /// document pickers), instead of each being refused. The host takes each request with
+    /// [`LayerHost::take_file_dialog`] after a frame and answers it with
+    /// [`LayerHost::answer_file_dialog`].
+    ///
+    /// [`Tx::open_file`]: crate::Tx::open_file
+    /// [`Tx::save_file`]: crate::Tx::save_file
+    /// [`Tx::open_folder`]: crate::Tx::open_folder
+    pub fn host_file_dialogs(&mut self, hosted: bool) {
+        self.hosts_file_dialogs = hosted;
+    }
+
+    /// The file dialog a handler asked for and the host has not shown yet, marked shown: its
+    /// id, kind and options. One at a time; nothing while one shows.
+    pub fn take_file_dialog(&mut self) -> Option<(u64, crate::FileDialogKind, crate::FileDialogOptions)> {
+        self.rt.take_file_dialog()
+    }
+
+    /// Answers dialog `id` with the chosen path, `Ok(None)` for a cancel, or the reason it could
+    /// not show; its callback runs on the next frame.
+    pub fn answer_file_dialog(&mut self, id: u64, result: crate::FileDialogResult) {
+        self.rt.answer_file_dialog(id, result);
+        self.rt.invalidate();
     }
 
     pub fn runtime_mut(&mut self) -> &mut Runtime<S> {
@@ -235,7 +264,9 @@ impl<S: 'static> LayerHost<S> {
         if self.rt.popup_menu().is_some() {
             self.rt.cancel_popups();
         }
-        self.rt.refuse_file_dialog("native file dialogs are unsupported in embedded views");
+        if !self.hosts_file_dialogs {
+            self.rt.refuse_file_dialog("native file dialogs are unsupported in embedded views");
+        }
 
         let comp_animating = self.compositor.as_ref().is_some_and(|c| c.animating());
         let frame = match surface.get_current_texture() {
