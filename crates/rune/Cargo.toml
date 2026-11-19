@@ -176,6 +176,8 @@ futures-util = { version = "0.3", optional = true }
 [target.'cfg(target_os = "android")'.dependencies]
 # Android through NativeActivity: `rune::android::init` hands winit the activity (`android_main`).
 winit = { version = "0.30.13", default-features = false, features = ["rwh_06", "android-native-activity"] }
+# GLES beside Vulkan, so a device whose Vulkan driver is missing or broken still draws.
+wgpu = { version = "30", default-features = false, features = ["gles"] }
 
 [target.'cfg(all(not(target_vendor = "apple"), not(target_arch = "wasm32")))'.dependencies]
 wgpu = { version = "30", default-features = false, features = ["vulkan", "dx12"] }
