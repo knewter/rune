@@ -60,6 +60,9 @@ export "CXX_$triple_env=$llvm/$target$api-clang++"
 export "AR_$triple_env=$llvm/llvm-ar"
 export "CARGO_TARGET_${triple_upper}_LINKER=$llvm/$target$api-clang"
 export ANDROID_NDK_ROOT="$NDK_HOME"
+# Android 15+ devices with 16 KB pages refuse (or warn on) a library whose LOAD segments are
+# 4 KB aligned.
+export "CARGO_TARGET_${triple_upper}_RUSTFLAGS=-C link-arg=-Wl,-z,max-page-size=16384"
 
 cd "$root"
 flag=--release
