@@ -103,5 +103,9 @@ fn android_main(app: rune::android::AndroidApp) {
     eprintln!("android_main: starting rune");
     rune::android::init(app);
     rune::run(spec());
-    eprintln!("android_main: rune::run returned");
+    // winit makes one EventLoop per process, and Android keeps a finished activity's process
+    // cached: a relaunch into it panicked "EventLoop can't be recreated". End the process
+    // with the activity, so a relaunch starts fresh.
+    eprintln!("android_main: rune::run returned; exiting the process");
+    std::process::exit(0);
 }
