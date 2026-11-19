@@ -588,6 +588,8 @@ pub struct Runtime<S: 'static> {
     tab_visits_controls: bool,
     /// `Runtime::set_spatial_arrows`: arrows move focus by position, as a TV remote's do.
     spatial_arrows: bool,
+    /// `Runtime::set_fields_keep_arrows`: a focused field keeps its arrows from spatial focus.
+    fields_keep_arrows: bool,
     modal_stack: Vec<(String, Option<String>)>,
     /// Focus when the running commit began, before a new view's focus request applied: what a
     /// modal that opens in this commit returns focus to.
@@ -959,6 +961,7 @@ impl<S: 'static> Runtime<S> {
             full_keyboard_access: true,
             tab_visits_controls: false,
             spatial_arrows: false,
+            fields_keep_arrows: true,
             modal_stack: Vec::new(),
             focus_before_commit: None,
             last_focused: None,

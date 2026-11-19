@@ -389,9 +389,10 @@ impl<S: 'static> Runtime<S> {
             }
         }
         // A remote's arrows go where the controls are drawn (`spatial.rs`); a field keeps its
-        // own but for Up and Down out of a single line, and a menu's highlight keeps moving
+        // own but for Up and Down out of a single line (and none while the host says it is not
+        // being typed in, `set_fields_keep_arrows`), and a menu's highlight keeps moving
         // through the menu. At an edge the key goes on.
-        let field_keeps = self.nodes[i].input.as_ref()
+        let field_keeps = self.fields_keep_arrows && self.nodes[i].input.as_ref()
             .is_some_and(|f| !f.single_line || !matches!(ev.key, Key::Up | Key::Down));
         if let Some(dir) = toward && !field_keeps && self.nodes[i].focus.highlight.is_none() {
             let Some(next) = self.spatial_target(i, dir) else { return false };

@@ -117,3 +117,29 @@ fn down_leaves_a_single_line_field_and_left_stays_in_it() {
     step(&mut rt, Key::Up);
     assert_eq!(focused(&rt), "query");
 }
+
+/// A many-line field over a card, as Dozer's composer sits over Home's suggestions.
+struct Composer { draft: crate::TextEdit }
+
+fn composer(s: &Composer, _: &mut Cx<Composer>) -> El {
+    col().key("root").w_full().h_full()
+        .child(crate::text_input(&s.draft, crate::TextStyle::new(14.0, 400.0)).key("draft").size(200.0, 80.0)
+            .on_edit(|s: &mut Composer| &mut s.draft))
+        .child(button("suggestion"))
+}
+
+#[test]
+fn a_field_not_being_typed_in_passes_the_remote_on() {
+    let mut draft = crate::TextEdit::new("one\ntwo");
+    draft.focused = true;
+    let mut rt = Runtime::new(Composer { draft }, composer, (300.0, 200.0), Env::new(true, 1.0));
+    rt.set_spatial_arrows(true);
+    rt.frame(0.0);
+    let step = |rt: &mut Runtime<Composer>, key| { rt.key(KeyEvent { key, mods: Mods::default() }); rt.frame(0.0); };
+    let focused = |rt: &Runtime<Composer>| rt.elements().into_iter().find(|e| e.focused).and_then(|e| e.key).unwrap_or_default();
+    step(&mut rt, Key::Down);
+    assert_eq!(focused(&rt), "draft", "typing in it, Down moves between its lines");
+    rt.set_fields_keep_arrows(false);
+    step(&mut rt, Key::Down);
+    assert_eq!(focused(&rt), "suggestion");
+}

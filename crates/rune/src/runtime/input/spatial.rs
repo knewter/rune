@@ -52,6 +52,14 @@ impl<S: 'static> Runtime<S> {
         self.spatial_arrows = on;
     }
 
+    /// Whether a focused text field keeps its arrows (moving its caret) while arrows are
+    /// spatial. On by default. A television host turns it off while a field the remote reached
+    /// has no keyboard up, so the remote passes over the field rather than into it, and on
+    /// again once the person presses the field to type.
+    pub fn set_fields_keep_arrows(&mut self, on: bool) {
+        self.fields_keep_arrows = on;
+    }
+
     /// The focusable node an arrow from `from` lands on, or `None` at an edge.
     pub(super) fn spatial_target(&self, from: usize, dir: Toward) -> Option<usize> {
         let at = *self.drawn.get(from)?;
