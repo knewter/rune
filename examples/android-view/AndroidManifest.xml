@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- An ordinary Kotlin activity hosting Rune on a SurfaceView. No configChanges: rotation
+     recreates the activity, and Rune's runtime survives it in the process. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="systems.rune.androidtest"
+    android:versionCode="2" android:versionName="0.0.2">
+  <uses-sdk android:minSdkVersion="30" android:targetSdkVersion="35"/>
+  <application android:label="Rune view test" android:hasCode="true" android:debuggable="true"
+      android:enableOnBackInvokedCallback="true"
+      android:theme="@android:style/Theme.DeviceDefault.DayNight">
+    <activity android:name=".MainActivity" android:exported="true"
+        android:windowSoftInputMode="adjustResize"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+  <!-- An accessibility client for device checks (A11yProbe.kt); it instruments this app. -->
+  <instrumentation android:name=".A11yProbe" android:targetPackage="systems.rune.androidtest"/>
+</manifest>

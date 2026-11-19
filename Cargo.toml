@@ -18,6 +18,7 @@ members = [
     "themes/opencode",
     "examples/hello",
     "examples/android-hello",
+    "examples/android-view",
     "examples/web-hello",
     "examples/web-showcase",
     "www/app",

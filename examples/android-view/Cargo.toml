@@ -1,0 +1,22 @@
+[package]
+name = "android-view"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+description = "Rune drawing on a SurfaceView inside an ordinary Kotlin Activity: embed::LayerHost driven by Choreographer, touch, an InputConnection and AccessKit over JNI. scripts/android-view-apk.sh builds the APK."
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[[bin]]
+name = "android-view"
+path = "src/main.rs"
+
+[dependencies]
+rune = { path = "../../crates/rune" }
+
+[target.'cfg(target_os = "android")'.dependencies]
+accesskit_android = { version = "0.9.1", features = ["embedded-dex"] }
+
+[lints]
+workspace = true
