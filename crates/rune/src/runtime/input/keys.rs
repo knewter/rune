@@ -246,7 +246,10 @@ impl<S: 'static> Runtime<S> {
 
     /// What [`Tx::focused`] reports: the focused link's id, else the focused element's key,
     /// else its path's last segment (a field in a virtual row that scrolled out has no node).
-    pub(super) fn focused_key(&self) -> Option<String> {
+    /// A host reads it between frames to learn which control owns the keyboard when no text
+    /// field does: Android shows its soft keyboard for a focused terminal, whose keys are
+    /// the control's `on_key` rather than a field's text.
+    pub fn focused_key(&self) -> Option<String> {
         let path = self.focused.as_deref()?;
         if let Some(id) = self.focused_index().and_then(|i| self.focused_link_id(i)) { return Some(id); }
         Some(self.focused_index().and_then(|i| self.nodes[i].key.clone())
