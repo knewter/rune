@@ -1,6 +1,8 @@
 package systems.rune.androidtest
 
 import android.app.Activity
+import android.app.UiModeManager
+import android.view.ContextThemeWrapper
 import android.content.res.Configuration
 import android.os.Bundle
 import android.view.WindowInsetsController
@@ -20,6 +22,18 @@ class MainActivity : Activity() {
         val dark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
         val light = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
         window.insetsController?.setSystemBarsAppearance(if (dark) 0 else light, light)
-        setContentView(RuneView(this))
+        // Debug extras that stand in for system settings, so a test needn't change the phone's:
+        // `night` (yes/no/auto) sets this app's own night mode, which recreates the activity in
+        // it; `fontScale` gives the view a configuration with that font scale.
+        intent.getStringExtra("night")?.let {
+            val mode = when (it) { "yes" -> UiModeManager.MODE_NIGHT_YES; "no" -> UiModeManager.MODE_NIGHT_NO; else -> UiModeManager.MODE_NIGHT_AUTO }
+            intent.removeExtra("night")
+            getSystemService(UiModeManager::class.java).setApplicationNightMode(mode)
+        }
+        val fontScale = intent.getFloatExtra("fontScale", 0f)
+        val context = if (fontScale > 0f) ContextThemeWrapper(this, theme).apply {
+            applyOverrideConfiguration(android.content.res.Configuration().apply { this.fontScale = fontScale })
+        } else this
+        setContentView(RuneView(context))
     }
 }

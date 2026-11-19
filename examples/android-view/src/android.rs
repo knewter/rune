@@ -4,6 +4,7 @@
 
 use std::cell::RefCell;
 use std::ffi::c_void;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use accesskit_android::InjectingAdapter;
@@ -11,6 +12,7 @@ use accesskit_android::jni::objects::{GlobalRef, JFloatArray, JIntArray, JObject
 use accesskit_android::jni::sys::{jboolean, jfloat, jint, jintArray, jlong, jstring};
 use accesskit_android::jni::{JNIEnv, JavaVM};
 use rune::embed::LayerHost;
+use rune::clipboard::MemoryClipboard;
 use rune::{AccessibilityLink, FocusedField, Ime, Key, KeyEvent, Mods, TouchPhase};
 
 use crate::{State, spec};
@@ -44,7 +46,22 @@ struct Host {
     field: Option<FocusedField>,
     wake_after_ms: i64,
     frames: u64,
+    /// Which `RuneView` the window belongs to: a new activity's surface can arrive before the old
+    /// one's goes, and the old one's going must not take the new window with it.
+    owner: jint,
+    /// Rune's clipboard: Android's goes in before a paste, and a copy comes out after a frame.
+    clipboard: MemoryClipboard,
+    /// The clipboard text Android last heard from us, or put there for a paste.
+    clipboard_seen: Option<String>,
 }
+
+/// A press asked for a tick (`crate::haptic`); the view performs it after the frame.
+static HAPTIC: AtomicBool = AtomicBool::new(false);
+/// Whether the app has something Back would undo, so the view takes Back (and its predictive
+/// gesture) instead of leaving the activity.
+pub(crate) static CAN_GO_BACK: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn request_haptic() { HAPTIC.store(true, Ordering::Relaxed); }
 
 thread_local! {
     static HOST: RefCell<Option<Host>> = const { RefCell::new(None) };
@@ -121,8 +138,9 @@ pub extern "system" fn Java_systems_rune_androidtest_RuneView_nativeAttach(mut e
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_systems_rune_androidtest_RuneView_nativeSurfaceCreated(
-    mut env: JNIEnv, _this: JObject, surface: JObject, width: jint, height: jint, density: jfloat, dark: jboolean,
+    mut env: JNIEnv, _this: JObject, surface: JObject, width: jint, height: jint, density: jfloat, dark: jboolean, font_scale: jfloat, owner: jint,
 ) {
+    set_font_scale(font_scale);
     // SAFETY: `surface` is a live `android.view.Surface` passed by the caller.
     let window = unsafe { ANativeWindow_fromSurface(env.get_raw(), surface.as_raw()) };
     if window.is_null() { log("surfaceCreated: no ANativeWindow"); return; }
@@ -135,17 +153,25 @@ pub extern "system" fn Java_systems_rune_androidtest_RuneView_nativeSurfaceCreat
             if let Err(e) = unsafe { host.layer.set_android_native_window(window) } { log(&format!("set window: {e}")); }
             if !host.window.is_null() { unsafe { ANativeWindow_release(host.window) }; }
             host.window = window;
+            host.owner = owner;
             host.density = density;
             host.layer.resize(viewport, density);
+            // A new activity brings the configuration it was made with: night mode, font scale.
+            let rt = host.layer.runtime_mut();
+            rt.set_system_dark(dark != 0);
+            rt.invalidate();
             log(&format!("surfaceCreated: {width}x{height} @ {density}, the runtime from before drawing again"));
             return;
         }
         // SAFETY: as above.
         let made = unsafe { LayerHost::from_android_native_window(window, &spec(), State::default(), viewport, density, dark != 0, waker()) };
         match made {
-            Ok(layer) => {
+            Ok(mut layer) => {
+                let clipboard = rune::clipboard::memory();
+                layer.runtime_mut().use_clipboard(&clipboard);
                 let mut host = Host {
                     layer, window, density, link: AccessibilityLink::new(), adapter: None, field: None, wake_after_ms: -1, frames: 0,
+                    clipboard, clipboard_seen: None, owner,
                 };
                 attach_accessibility(&mut env, &mut host);
                 log(&format!("surfaceCreated: {width}x{height} @ {density}, a new runtime"));
@@ -170,8 +196,12 @@ pub extern "system" fn Java_systems_rune_androidtest_RuneView_nativeSurfaceChang
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_systems_rune_androidtest_RuneView_nativeSurfaceDestroyed(_env: JNIEnv, _this: JObject) {
+pub extern "system" fn Java_systems_rune_androidtest_RuneView_nativeSurfaceDestroyed(_env: JNIEnv, _this: JObject, owner: jint) {
     with_host(|host| {
+        if host.owner != owner {
+            log("surfaceDestroyed: an older view's surface; the current one keeps drawing");
+            return;
+        }
         // SAFETY: null drops the swapchain before the window is released.
         let _ = unsafe { host.layer.set_android_native_window(std::ptr::null_mut()) };
         if !host.window.is_null() { unsafe { ANativeWindow_release(host.window) }; }
@@ -180,6 +210,12 @@ pub extern "system" fn Java_systems_rune_androidtest_RuneView_nativeSurfaceDestr
         host.layer.runtime_mut().cancel_touch();
         log("surfaceDestroyed: the runtime stays");
     });
+}
+
+/// Android's font scale (Settings > Display > Font size) as Rune's text scale.
+fn set_font_scale(scale: f32) {
+    let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
+    rune::tok::set_text_scale(scale);
 }
 
 fn now() -> f64 { START.get().map_or(0.0, |s| s.elapsed().as_secs_f64()) }
@@ -223,6 +259,21 @@ pub extern "system" fn Java_systems_rune_androidtest_RuneView_nativeKey(mut env:
         6 => Key::Up,
         7 => Key::Down,
         8 => Key::Escape,
+        9 => Key::Tab,
+        // Ctrl (or a dedicated key: Copy, Cut, Select all) with a letter.
+        10 => match env.get_string(&text).ok().and_then(|s| String::from(s).chars().next()) {
+            Some(c) => Key::Command(c.to_ascii_lowercase()),
+            None => return,
+        },
+        // Paste: `text` is what Android's clipboard holds.
+        11 => {
+            let Ok(s) = env.get_string(&text).map(String::from) else { return };
+            with_host(|host| {
+                host.clipboard_seen = Some(s.clone());
+                host.layer.runtime_mut().paste(s);
+            });
+            return;
+        }
         _ => match env.get_string(&text) {
             Ok(s) => Key::Text(s.into()),
             Err(_) => return,
@@ -277,7 +328,14 @@ pub extern "system" fn Java_systems_rune_androidtest_RuneView_nativeFrame(_env: 
         let pending = rt.has_pending_input();
         host.field = rt.focused_field();
         host.wake_after_ms = out.wake_after_secs.map_or(-1, |s| (s * 1000.0).ceil() as i64);
-        (i32::from(out.animating || pending)) | (i32::from(host.field.is_some()) << 1)
+        // A copy or cut Rune made since Android last heard.
+        let copied = host.clipboard.text().map(|t| t.to_string());
+        let clipboard_changed = copied.is_some() && copied != host.clipboard_seen;
+        i32::from(out.animating || pending)
+            | (i32::from(host.field.is_some()) << 1)
+            | (i32::from(clipboard_changed) << 2)
+            | (i32::from(HAPTIC.swap(false, Ordering::Relaxed)) << 3)
+            | (i32::from(CAN_GO_BACK.load(Ordering::Relaxed)) << 4)
     }).unwrap_or(0)
 }
 
@@ -294,6 +352,26 @@ pub extern "system" fn Java_systems_rune_androidtest_RuneView_nativeFieldText(en
         Some(t) => env.new_string(t).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut()),
         None => std::ptr::null_mut(),
     }
+}
+
+/// What Rune copied, for Android's clipboard; Android now holds it.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_systems_rune_androidtest_RuneView_nativeTakeClipboard(env: JNIEnv, _this: JObject) -> jstring {
+    let text = with_host(|host| {
+        let t = host.clipboard.text().map(|t| t.to_string());
+        host.clipboard_seen = t.clone();
+        t
+    }).flatten();
+    match text {
+        Some(t) => env.new_string(t).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut()),
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// Predictive Back: 0 started or moved (`progress` 0..1), 1 committed, 2 cancelled.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_systems_rune_androidtest_RuneView_nativeBack(_env: JNIEnv, _this: JObject, phase: jint, progress: jfloat) {
+    with_host(|host| host.layer.runtime_mut().update(|s: &mut State, _| crate::back(s, phase, progress)));
 }
 
 /// `[selStart, selEnd, compStart, compEnd, singleLine, secure, submits, pathHash]`, or empty.

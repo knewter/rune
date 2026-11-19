@@ -1,5 +1,7 @@
 package systems.rune.androidtest
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.res.Configuration
 import android.os.SystemClock
@@ -9,6 +11,7 @@ import android.text.Selection
 import android.text.SpannableStringBuilder
 import android.util.Log
 import android.view.Choreographer
+import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.SurfaceHolder
@@ -19,6 +22,9 @@ import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
+import android.window.BackEvent
+import android.window.OnBackAnimationCallback
+import android.window.OnBackInvokedDispatcher
 
 /**
  * A SurfaceView that Rune draws into through wgpu (`embed::LayerHost` on the surface's
@@ -33,7 +39,10 @@ import android.view.inputmethod.InputMethodManager
  */
 class RuneView(context: Context) : SurfaceView(context), SurfaceHolder.Callback, Choreographer.FrameCallback {
     private var framePosted = false
+    /** This view's name to the native side, which keeps the window of the newest view. */
+    private val token = ++lastToken
     private val imm = context.getSystemService(InputMethodManager::class.java)
+    private val clipboard = context.getSystemService(ClipboardManager::class.java)
 
     /** What the keyboard edits: the focused field, with the composition in it. */
     val editable: Editable = SpannableStringBuilder()
@@ -47,6 +56,9 @@ class RuneView(context: Context) : SurfaceView(context), SurfaceHolder.Callback,
         holder.addCallback(this)
         isFocusable = true
         isFocusableInTouchMode = true
+        // Keys (a D-pad, a keyboard) reach Rune from the first press, not after Android has
+        // spent one finding a focused view.
+        isFocusedByDefault = true
         nativeAttach()
         setOnApplyWindowInsetsListener { _, insets ->
             sendInsets(insets)
@@ -77,8 +89,10 @@ class RuneView(context: Context) : SurfaceView(context), SurfaceHolder.Callback,
     override fun surfaceCreated(holder: SurfaceHolder) {
         val dark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
         val frame = holder.surfaceFrame
-        nativeSurfaceCreated(holder.surface, frame.width(), frame.height(), resources.displayMetrics.density, dark)
+        nativeSurfaceCreated(holder.surface, frame.width(), frame.height(), resources.displayMetrics.density, dark,
+            resources.configuration.fontScale, token)
         rootWindowInsets?.let { lastInsets = IntArray(4); sendInsets(it) }
+        if (!hasFocus()) requestFocus()
         scheduleFrame()
     }
 
@@ -88,7 +102,7 @@ class RuneView(context: Context) : SurfaceView(context), SurfaceHolder.Callback,
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
-        nativeSurfaceDestroyed()
+        nativeSurfaceDestroyed(token)
     }
 
     // Frames -------------------------------------------------------------------------------------
@@ -125,6 +139,44 @@ class RuneView(context: Context) : SurfaceView(context), SurfaceHolder.Callback,
             }
         }
         syncInput(flags and 2 != 0)
+        if (flags and 4 != 0) nativeTakeClipboard()?.let {
+            clipboard.setPrimaryClip(ClipData.newPlainText("Rune", it))
+            Log.i(TAG, "copied ${it.length} chars to the clipboard")
+        }
+        if (flags and 8 != 0) {
+            val done = performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+            Log.i(TAG, "haptic CONFIRM performed=$done")
+        }
+        setBackEnabled(flags and 16 != 0)
+    }
+
+    // Back ---------------------------------------------------------------------------------------
+
+    /** Registered while Rune has something Back undoes; otherwise Back leaves the activity. */
+    private val backCallback = object : OnBackAnimationCallback {
+        override fun onBackStarted(e: BackEvent) { back(0, e.progress) }
+        override fun onBackProgressed(e: BackEvent) { back(0, e.progress) }
+        override fun onBackInvoked() { back(1, 1f) }
+        override fun onBackCancelled() { back(2, 0f) }
+        private fun back(phase: Int, progress: Float) {
+            Log.i(TAG, "back phase=$phase progress=$progress")
+            nativeBack(phase, progress)
+            scheduleFrame()
+        }
+    }
+    private var backRegistered = false
+
+    private fun setBackEnabled(enabled: Boolean) {
+        if (enabled == backRegistered) return
+        val dispatcher = findOnBackInvokedDispatcher() ?: return
+        if (enabled) dispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, backCallback)
+        else dispatcher.unregisterOnBackInvokedCallback(backCallback)
+        backRegistered = enabled
+    }
+
+    override fun onDetachedFromWindow() {
+        setBackEnabled(false)
+        super.onDetachedFromWindow()
     }
 
     // Touch and keys -----------------------------------------------------------------------------
@@ -149,11 +201,41 @@ class RuneView(context: Context) : SurfaceView(context), SurfaceHolder.Callback,
         KeyEvent.KEYCODE_DPAD_UP -> 6
         KeyEvent.KEYCODE_DPAD_DOWN -> 7
         KeyEvent.KEYCODE_ESCAPE -> 8
+        KeyEvent.KEYCODE_TAB -> 9
         else -> 0
+    }
+
+    /** Android's clipboard into Rune's focused field. */
+    private fun paste() {
+        val text = clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString() ?: return
+        nativeKey(11, text, false)
+        scheduleFrame()
+    }
+
+    private fun command(letter: Char) {
+        nativeKey(10, letter.toString(), false)
+        scheduleFrame()
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if (keyCode == KeyEvent.KEYCODE_BACK) return super.onKeyDown(keyCode, event)
+        when (keyCode) {
+            KeyEvent.KEYCODE_PASTE -> { paste(); return true }
+            KeyEvent.KEYCODE_COPY -> { command('c'); return true }
+            KeyEvent.KEYCODE_CUT -> { command('x'); return true }
+        }
+        if (event.isCtrlPressed && keyCode in KeyEvent.KEYCODE_A..KeyEvent.KEYCODE_Z) {
+            val letter = 'a' + (keyCode - KeyEvent.KEYCODE_A)
+            if (letter == 'v') paste() else command(letter)
+            return true
+        }
+        // A D-pad (a TV remote, a keyboard's arrows with no field focused) moves focus as Tab does.
+        if (fieldHash == null) when (keyCode) {
+            KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT -> { nativeKey(9, "", false); scheduleFrame(); return true }
+            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_LEFT -> { nativeKey(9, "", true); scheduleFrame(); return true }
+            // Rune presses a focused control on Space (Return passes a button by, as on macOS).
+            KeyEvent.KEYCODE_DPAD_CENTER -> { nativeKey(0, " ", false); scheduleFrame(); return true }
+        }
         val code = keyCode(keyCode)
         val ch = event.unicodeChar
         if (code == 0 && ch == 0) return super.onKeyDown(keyCode, event)
@@ -208,6 +290,17 @@ class RuneView(context: Context) : SurfaceView(context), SurfaceHolder.Callback,
         override fun setSelection(start: Int, end: Int) = edit { super.setSelection(start, end) }
         override fun replaceText(start: Int, end: Int, text: CharSequence, newCursorPosition: Int, textAttribute: android.view.inputmethod.TextAttribute?) =
             edit { super.replaceText(start, end, text, newCursorPosition, textAttribute) }
+
+        override fun performContextMenuAction(id: Int): Boolean {
+            when (id) {
+                android.R.id.paste, android.R.id.pasteAsPlainText -> paste()
+                android.R.id.copy -> command('c')
+                android.R.id.cut -> command('x')
+                android.R.id.selectAll -> command('a')
+                else -> return false
+            }
+            return true
+        }
 
         override fun performEditorAction(actionCode: Int): Boolean {
             Log.i(TAG, "editor action $actionCode")
@@ -273,9 +366,9 @@ class RuneView(context: Context) : SurfaceView(context), SurfaceHolder.Callback,
     // Native ----------------------------------------------------------------------------------
 
     private external fun nativeAttach()
-    private external fun nativeSurfaceCreated(surface: android.view.Surface, width: Int, height: Int, density: Float, dark: Boolean)
+    private external fun nativeSurfaceCreated(surface: android.view.Surface, width: Int, height: Int, density: Float, dark: Boolean, fontScale: Float, owner: Int)
     private external fun nativeSurfaceChanged(width: Int, height: Int, density: Float)
-    private external fun nativeSurfaceDestroyed()
+    private external fun nativeSurfaceDestroyed(owner: Int)
     private external fun nativeTouch(action: Int, index: Int, ids: IntArray, xs: FloatArray, ys: FloatArray, timeMs: Long)
     private external fun nativeKey(code: Int, text: String, shift: Boolean)
     private external fun nativeSetField(text: String, selStart: Int, selEnd: Int, compStart: Int, compEnd: Int)
@@ -284,9 +377,12 @@ class RuneView(context: Context) : SurfaceView(context), SurfaceHolder.Callback,
     private external fun nativeWakeAfterMs(): Long
     private external fun nativeFieldText(): String?
     private external fun nativeFieldInfo(): IntArray
+    private external fun nativeTakeClipboard(): String?
+    private external fun nativeBack(phase: Int, progress: Float)
 
     companion object {
         const val TAG = "RuneView"
+        private var lastToken = 0
         init { System.loadLibrary("android_view") }
     }
 }

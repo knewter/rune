@@ -18,6 +18,25 @@ pub struct State {
     composer: TextEdit,
     sent: Vec<String>,
     picked: Option<usize>,
+    /// How far a predictive Back gesture has gone, 0..1, while one is under way.
+    back: f32,
+}
+
+/// A light tick, as a press on a platform button gives. Android performs it on the view after
+/// the frame; elsewhere there is nothing to do.
+fn haptic() {
+    #[cfg(target_os = "android")]
+    android::request_haptic();
+}
+
+/// Back from the host (Android's predictive gesture): `phase` 0 moves, 1 commits, 2 cancels.
+/// What Back undoes here is the picked row.
+pub fn back(s: &mut State, phase: i32, progress: f32) {
+    match phase {
+        0 => s.back = progress.clamp(0.0, 1.0),
+        1 => { s.picked = None; s.back = 0.0; }
+        _ => s.back = 0.0,
+    }
 }
 
 fn view(s: &State, cx: &mut Cx<State>) -> El {
@@ -25,6 +44,8 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
     let t = tok::theme(dark);
     let accent = tok::accent(0, dark);
     let [top, right, bottom, left] = cx.safe_area();
+    #[cfg(target_os = "android")]
+    android::CAN_GO_BACK.store(s.picked.is_some(), std::sync::atomic::Ordering::Relaxed);
     let label = text(if s.on { "Lights on" } else { "Lights off" }).font(type_::TITLE).color(t.text);
     let knob = el().key("knob").size(18.0, 18.0).radius(9.0).fill(t.knob)
         .absolute(if s.on { 18.0 } else { 2.0 }, 2.0);
@@ -36,11 +57,12 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
         .child(knob);
     let button = el().key("tap").role("button").label("Tap").focusable(true)
         .size(140.0, 48.0).radius(12.0).fill(accent).center()
-        .on_press(|s: &mut State| s.taps += 1)
+        .on_press(|s: &mut State| { s.taps += 1; haptic(); })
         .child(text("Tap").color(t.bg));
     let count = text(format!("Tapped {} times", s.taps)).color(t.text);
-    let info = text(format!("safe area {top:.0}/{right:.0}/{bottom:.0}/{left:.0} | scale {:.2} | picked {:?}",
-        cx.env().scale, s.picked.map(|i| i + 1)))
+    let info = text(format!("safe area {top:.0}/{right:.0}/{bottom:.0}/{left:.0} | scale {:.2} | text {:.2} | {} | picked {:?}{}",
+        cx.env().scale, tok::text_scale(), if dark { "dark" } else { "light" }, s.picked.map(|i| i + 1),
+        if s.back > 0.0 { format!(" | back {:.2}", s.back) } else { String::new() }))
         .font(type_::LABEL).color(t.text_secondary);
 
     let mut list = col().key("list").gap(6.0).w_full();
@@ -52,10 +74,13 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
     }
     for i in 0..40 {
         let picked = s.picked == Some(i);
+        // A predictive Back slides the picked row's highlight away as the gesture goes.
+        let shift = if picked { s.back * 64.0 } else { 0.0 };
         list = list.child(
             row().key(format!("row-{i}")).role("button").label(format!("Row {}", i + 1)).focusable(true)
                 .h(48.0).px(16.0).center_y().radius(10.0).w_full()
-                .fill(if picked { accent.alpha(0.35) } else { t.card })
+                .fill(if picked { accent.alpha(0.35 * (1.0 - s.back)) } else { t.card })
+                .pl(16.0 + shift)
                 .on_press(move |s: &mut State| s.picked = Some(i))
                 .child(text(format!("Row {}", i + 1)).color(t.text)),
         );
