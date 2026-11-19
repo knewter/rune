@@ -40,6 +40,7 @@ impl<S: 'static> Runtime<S> {
         match ev {
             Ime::Preedit(s, _) => self.app_ime.composing = !s.is_empty(),
             Ime::Commit(_) => self.app_ime.composing = false,
+            Ime::Replace { preedit, .. } => self.app_ime.composing = preedit.as_ref().is_some_and(|(p, _)| !p.is_empty()),
             Ime::Enabled | Ime::Disabled => {}
         }
         let state = match &mut self.playground {

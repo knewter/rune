@@ -745,7 +745,7 @@ impl TextEdit {
         }
     }
 
-    fn clamp_char_boundary(s: &str, idx: usize) -> usize {
+    pub(crate) fn clamp_char_boundary(s: &str, idx: usize) -> usize {
         s.floor_char_boundary(idx)
     }
 
