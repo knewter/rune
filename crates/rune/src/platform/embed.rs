@@ -14,6 +14,15 @@ use crate::tooling::{AppSpec, runtime_for};
 
 static SHARED_GPU: OnceLock<Result<Arc<Gpu>, String>> = OnceLock::new();
 
+/// The insets an embedding host last reported (`LayerHost::set_safe_area`), in points.
+#[cfg(target_os = "android")]
+static SAFE_AREA: std::sync::Mutex<[f32; 4]> = std::sync::Mutex::new([0.0; 4]);
+
+#[cfg(target_os = "android")]
+pub(crate) fn safe_area() -> [f32; 4] {
+    SAFE_AREA.lock().map(|a| *a).unwrap_or_default()
+}
+
 fn shared_gpu() -> Result<Arc<Gpu>, String> {
     SHARED_GPU
         .get_or_init(|| Gpu::try_new(Gpu::instance(), None).map(Arc::new))
@@ -200,6 +209,17 @@ impl<S: 'static> LayerHost<S> {
             if let Some(surface) = &self.surface { surface.configure(&self.gpu.device, &self.config); }
         }
         self.rt.set_viewport((px_w as f32 / scale, px_h as f32 / scale), scale);
+    }
+
+    /// The system bars, display cutout and soft keyboard over the view, in points (top, right,
+    /// bottom, left), as `Cx::safe_area` reports them. The view runs again when they change.
+    #[cfg(target_os = "android")]
+    pub fn set_safe_area(&mut self, insets: [f32; 4]) {
+        let Ok(mut area) = SAFE_AREA.lock() else { return };
+        if *area == insets { return; }
+        *area = insets;
+        drop(area);
+        self.rt.invalidate();
     }
 
     /// Steps animations and layout to `Instant::now()` and presents one Metal frame.
