@@ -42,7 +42,10 @@ impl Shared {
     }
 }
 
-struct Activation(Arc<Shared>);
+/// The [`ActivationHandler`] an embedder hands its platform adapter
+/// ([`AccessibilityLink::handlers`]): a client's first request queues the whole tree for the
+/// host's next turn.
+pub struct Activation(Arc<Shared>);
 impl ActivationHandler for Activation {
     fn request_initial_tree(&mut self) -> Option<TreeUpdate> {
         // The host's thread builds the tree on the wake; the adapter answers with a
@@ -52,7 +55,9 @@ impl ActivationHandler for Activation {
     }
 }
 
-struct Actions(Arc<Shared>);
+/// The [`ActionHandler`] an embedder hands its platform adapter: requests run on the host's
+/// next turn ([`AccessibilityLink::service`]).
+pub struct Actions(Arc<Shared>);
 impl ActionHandler for Actions {
     fn do_action(&mut self, request: ActionRequest) {
         self.0.push(|i| i.actions.push(request));
@@ -86,8 +91,16 @@ impl AccessibilityLink {
     /// A link no OS adapter wakes: tests call [`AccessibilityLink::activate`] themselves.
     pub fn new() -> Self { Self::default() }
 
-    pub(crate) fn with_wake(wake: crate::Waker) -> Self {
+    /// A link whose handlers call `wake` when a client asks for something, so the host runs a
+    /// turn and calls [`AccessibilityLink::service`].
+    pub fn with_wake(wake: crate::Waker) -> Self {
         AccessibilityLink { shared: Arc::new(Shared { inbox: Mutex::default(), wake }), adopted: false }
+    }
+
+    /// Handlers for an embedder's own platform adapter (Android's `InjectingAdapter`): they
+    /// queue what they hear here, from any thread.
+    pub fn handlers(&self) -> (Activation, Actions) {
+        (Activation(self.shared.clone()), Actions(self.shared.clone()))
     }
 
     /// What an assistive client's first request does: the next update holds the whole tree.

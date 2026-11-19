@@ -62,6 +62,7 @@ pub mod windows;
 
 /// AccessKit's types, for [`Runtime::accessibility_tree`] and [`Runtime::accessibility_action`].
 pub use a11y::AccessibilityLink;
+pub use a11y::{Actions as AccessibilityActions, Activation as AccessibilityActivation};
 pub use accesskit;
 pub use app::App;
 pub use app::AppHandle;
