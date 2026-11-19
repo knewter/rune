@@ -228,6 +228,9 @@ pub use selectable::{SelectedText, SelectionChange, TextSelection};
 #[path = "runtime/timer_wake_tests.rs"]
 mod timer_wake_tests;
 #[cfg(test)]
+#[path = "runtime/wants_frame_tests.rs"]
+mod wants_frame_tests;
+#[cfg(test)]
 #[path = "runtime/truncate_tests.rs"]
 mod truncate_tests;
 #[cfg(test)]

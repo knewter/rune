@@ -251,6 +251,13 @@ impl<S: 'static> LayerHost<S> {
         self.rt.invalidate();
     }
 
+    /// Whether the window needs another frame to show its state: what [`EmbedFrame::animating`]
+    /// said, asked again after the host changed the runtime itself since that frame
+    /// ([`Runtime::update`], [`Runtime::invalidate`], input).
+    pub fn wants_frame(&self) -> bool {
+        self.compositor.as_ref().is_some_and(|c| c.animating()) || self.rt.wants_frame()
+    }
+
     /// Steps animations and layout to `Instant::now()` and presents one Metal frame.
     pub fn frame(&mut self) -> EmbedFrame {
         if self.suspended {
@@ -275,7 +282,7 @@ impl<S: 'static> LayerHost<S> {
                 surface.configure(&self.gpu.device, &self.config);
                 return EmbedFrame { animating: true, ..EmbedFrame::default() };
             }
-            _ => return EmbedFrame { animating: animating || comp_animating, ..EmbedFrame::default() },
+            _ => return EmbedFrame { animating: animating || comp_animating || self.rt.wants_frame(), ..EmbedFrame::default() },
         };
 
         let target = frame.texture.create_view(&wgpu::TextureViewDescriptor {
@@ -283,6 +290,9 @@ impl<S: 'static> LayerHost<S> {
             ..Default::default()
         });
         self.renderer.upload_images(&self.gpu.device, &self.gpu.queue, &mut self.rt.images);
+        // `El::surface` content (video): a window prepares it beside the instances, and so does
+        // this host, or a surface draws nothing.
+        self.renderer.prepare_surfaces(&self.gpu.device, &self.gpu.queue, &self.rt.surfaces, (self.config.width, self.config.height));
         let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
         let size = (self.config.width, self.config.height);
         let format = self.renderer.format();
@@ -319,7 +329,7 @@ impl<S: 'static> LayerHost<S> {
             Some((d - elapsed).max(0.0))
         });
         let comp_animating = self.compositor.as_ref().is_some_and(|c| c.animating());
-        let keep_ticking = animating || comp_animating || self.rt.has_pending_input() || self.rt.live_pending();
+        let keep_ticking = animating || comp_animating || self.rt.wants_frame();
         EmbedFrame {
             drew: true,
             animating: keep_ticking,

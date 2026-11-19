@@ -104,6 +104,16 @@ impl<S: 'static> Runtime<S> {
         self.needs_commit() || self.relayout || !self.queue.is_empty()
     }
 
+    /// Whether the window owes a frame beyond its running motion: what a window checks before
+    /// it rests (`Presented::settle`) -- the state changed (a handler, the host's
+    /// [`Runtime::update`], or the build itself, as when a video's state a view reads moved), a
+    /// layout is owed, input is queued, or a live value waits. A host that drives frames itself
+    /// (`LayerHost`) and stops ticking on less shows the frame before the one its state has
+    /// reached until something else wakes it.
+    pub fn wants_frame(&self) -> bool {
+        self.stale() || self.live_pending()
+    }
+
     /// A live-edit patch arrived that the next frame hasn't rebuilt the view with yet.
     pub(crate) fn patch_pending(&self) -> bool {
         #[cfg(feature = "hot")]
