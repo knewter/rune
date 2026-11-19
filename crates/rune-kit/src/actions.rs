@@ -370,7 +370,7 @@ impl Button {
             Label::Custom(f) => e.child(f(font, ink).a11y_hidden()),
         };
         if self.state == State::Disabled { e = e.dim(disabled_alpha); }
-        self.acts.apply(e.disabled(!enabled), enabled)
+        k.reach(self.acts.apply(e.disabled(!enabled), enabled))
     }
 }
 
@@ -523,6 +523,6 @@ impl IconButton {
         }
         e = paint(k, e, s, self.state, true).child(icon(self.icon, glyph).key("icon").color(ink).a11y_hidden());
         if self.state == State::Disabled { e = e.dim(disabled_alpha); }
-        self.acts.apply(e.disabled(!enabled), enabled)
+        k.reach(self.acts.apply(e.disabled(!enabled), enabled))
     }
 }

@@ -114,6 +114,6 @@ impl Checkbox {
             }
             root = root.child(content);
         }
-        self.acts.apply(root.focusable(!disabled).disabled(disabled), !disabled)
+        k.reach(self.acts.apply(root.focusable(!disabled).disabled(disabled), !disabled))
     }
 }

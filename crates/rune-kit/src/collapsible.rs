@@ -82,7 +82,7 @@ impl Collapsible {
                     .child(arrow)
                     .a11y_hidden(),
             );
-        let trigger = self.acts.apply(trigger, enabled);
+        let trigger = k.reach(self.acts.apply(trigger, enabled));
         let mut root = col().role("group").w_full().radius(k.radius.md).child(trigger);
         if self.open {
             root = root.child(col().key("content").role("region").label(self.title).w_full().children(self.content));

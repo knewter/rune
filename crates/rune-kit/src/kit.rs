@@ -228,9 +228,23 @@ pub struct Kit {
     /// Invalid inputs also paint their text, placeholder and caret in `c.danger.fg`
     /// (`@opencode/ui`'s look). Otherwise only the outline turns `danger`.
     pub invalid_text: bool,
+    /// The smallest a control is drawn, in points, on each side: where a window is touched
+    /// rather than pointed at, Material's 48 lets a finger reach a button, an icon button, a
+    /// switch, a checkbox or a disclosure's trigger. Zero (the default) leaves every control
+    /// at its own size, as on the desktop.
+    pub touch_target: f32,
 }
 
 impl Kit {
+    /// `control`, at least [`Kit::touch_target`] on each side.
+    pub fn reach(&self, control: El) -> El {
+        if self.touch_target > 0.0 {
+            control.min_w(self.touch_target).min_h(self.touch_target)
+        } else {
+            control
+        }
+    }
+
     /// Gives `e` the kit's hover and press look: `c.hover` under the pointer, and `c.pressed`
     /// in its place while held, as the kit's own rows and buttons show them. `e` still needs a
     /// handler (or `.hit()`) to be hit.

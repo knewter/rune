@@ -135,6 +135,7 @@ impl Kit {
             },
             blend_over: None,
             ring: None,
+            touch_target: 0.0,
             invalid_text: false,
         }
     }
