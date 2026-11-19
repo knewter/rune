@@ -107,3 +107,9 @@ unwrap_used = "warn"
 undocumented_unsafe_blocks = "warn" # shared: deny; errors left
 let_underscore_must_use = "warn" # shared: deny; errors left
 disallowed_methods = "warn" # shared: deny; errors left
+
+# winit as published (0.30.13) plus Android fixes ported from maxmaster55/rune
+# `claude/android-demo` (575947c9, d5ab4eb4, 241804a7): onDestroy ends the event loop, Back
+# reaches the activity, a density change is reported, night mode read live.
+[patch.crates-io]
+winit = { path = "vendor/winit" }
