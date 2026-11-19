@@ -64,6 +64,14 @@ impl<S: 'static> Runtime<S> {
         self.touch.finger.is_some()
     }
 
+    /// The surface went away under a finger: end it as a cancel, so the press doesn't stay down
+    /// waiting for a lift that won't come. (From maxmaster55/rune `claude/android-demo`.)
+    pub fn cancel_touch(&mut self) {
+        let Some(f) = self.touch.finger.as_ref() else { return };
+        let (id, x, y, time) = (f.id, f.origin.0, f.origin.1, f.at);
+        self.touch_up(id, x, y, time, true);
+    }
+
     fn touch_down(&mut self, id: u64, x: f32, y: f32, time: f64) {
         if self.touch.finger.is_some() { return; }
         let scroll = self.touch_scroll_start(x, y);
