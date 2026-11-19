@@ -6,6 +6,16 @@ impl El {
     pub fn on_press<S: 'static>(self, f: impl Fn(&mut S) + 'static) -> Self {
         self.on_press_tx(move |s: &mut S, _tx: &mut Tx| f(s))
     }
+    /// Offers assistive technology an action named `label` beside the element's press, as a
+    /// TalkBack or VoiceOver user's actions menu lists it (Compose's `customActions`): `f` runs
+    /// when the reader performs it. Each call adds one, in order.
+    pub fn a11y_action<S: 'static>(mut self, label: impl Into<String>, f: impl Fn(&mut S, &mut Tx) + 'static) -> Self {
+        let action: PressFn = Rc::new(move |s, tx| f(downcast::<S>(s), tx));
+        let mut actions: Vec<(String, PressFn)> = self.handlers.a11y_actions.as_deref().map(<[_]>::to_vec).unwrap_or_default();
+        actions.push((label.into(), action));
+        self.handlers.a11y_actions = Some(actions.into());
+        self
+    }
     pub fn on_press_tx<S: 'static>(mut self, f: impl Fn(&mut S, &mut Tx) + 'static) -> Self {
         self.handlers.on_press = Some(Rc::new(move |s, tx| f(downcast::<S>(s), tx)));
         if self.role == "group" {

@@ -1,0 +1,1 @@
+- Accessibility: `El::a11y_action(label, f)` offers an action by name, as an AccessKit custom action that a screen reader's actions menu lists; performing it runs `f`. An element offering one is in the tree even as a plain group.

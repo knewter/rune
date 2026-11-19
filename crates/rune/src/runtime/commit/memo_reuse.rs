@@ -312,6 +312,7 @@ fn same_handlers(
         on_selection_change,
         cursor,
         press_scale,
+        a11y_actions,
         #[cfg(debug_assertions)]
         sites: _,
     } = &**b;
@@ -358,6 +359,14 @@ fn same_handlers(
         && opt_rc_eq(&a.on_selection_change, on_selection_change)
         && a.cursor == *cursor
         && a.press_scale == *press_scale
+        && match (&a.a11y_actions, a11y_actions) {
+            (None, None) => true,
+            (Some(xa), Some(xb)) => {
+                xa.len() == xb.len()
+                    && xa.iter().zip(xb.iter()).all(|((la, fa), (lb, fb))| la == lb && Rc::ptr_eq(fa, fb))
+            }
+            _ => false,
+        }
 }
 
 /// Exhaustively checks that `el` has not been mutated by builders after `Built::placeholder`

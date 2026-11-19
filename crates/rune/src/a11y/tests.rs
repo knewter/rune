@@ -440,3 +440,48 @@ fn updates_report_structure_and_motion_beyond_accesskit_events() {
     assert!(rt.a11y_update().is_some(), "a scroll sends its viewport");
     assert!(rt.a11y_changes().moved, "a scroll moves boxes");
 }
+
+#[derive(Default)]
+struct Reply { copied: u32, retried: u32 }
+
+fn reply(_: &Reply, _: &mut Cx<Reply>) -> El {
+    col().child(
+        text("The answer").key("reply").label("The answer")
+            .a11y_action("Copy", |s: &mut Reply, _| s.copied += 1)
+            .a11y_action("Retry", |s: &mut Reply, _| s.retried += 1),
+    )
+}
+
+#[test]
+fn an_element_offers_its_actions_by_name_and_a_reader_runs_the_one_it_names() {
+    let mut rt = Runtime::new(Reply::default(), reply, (300.0, 200.0), Env::new(false, 1.0));
+    rt.frame(0.0);
+    let tree = rt.accessibility_tree();
+    let (_, node) = tree.nodes.iter().find(|(_, n)| n.author_id() == Some("reply")).expect("the reply is in the tree");
+    let offered: Vec<_> = node.custom_actions().iter().map(|a| (a.id, a.description.as_str())).collect();
+    assert_eq!(offered, [(0, "Copy"), (1, "Retry")]);
+    assert!(node.supports_action(Ak::CustomAction));
+    let retry = request(&rt, "reply", Ak::CustomAction, Some(ActionData::CustomAction(1)));
+    assert!(rt.a11y_action(&retry));
+    rt.frame(0.0);
+    assert_eq!((rt.state.copied, rt.state.retried), (0, 1));
+    let missing = request(&rt, "reply", Ak::CustomAction, Some(ActionData::CustomAction(2)));
+    assert!(!rt.a11y_action(&missing), "an action it does not offer");
+    assert!(!rt.a11y_action(&request(&rt, "reply", Ak::CustomAction, None)));
+}
+
+fn bubble(_: &Reply, _: &mut Cx<Reply>) -> El {
+    col().child(col().key("bubble").child(text("First")).child(text("Second")).a11y_action("Copy", |s: &mut Reply, _| s.copied += 1))
+}
+
+#[test]
+fn a_plain_group_offering_an_action_is_in_the_tree_for_a_reader_to_stop_on() {
+    let mut rt = Runtime::new(Reply::default(), bubble, (300.0, 200.0), Env::new(false, 1.0));
+    rt.frame(0.0);
+    let tree = rt.accessibility_tree();
+    let (_, node) = tree.nodes.iter().find(|(_, n)| n.author_id() == Some("bubble")).expect("the group is in the tree");
+    assert_eq!(node.custom_actions().len(), 1);
+    assert!(rt.a11y_action(&request(&rt, "bubble", Ak::CustomAction, Some(ActionData::CustomAction(0)))));
+    rt.frame(0.0);
+    assert_eq!(rt.state.copied, 1);
+}

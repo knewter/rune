@@ -21,6 +21,8 @@ pub(super) enum A11yAct {
     /// Pages (or, with `false`, lines) down and right.
     Scroll { x: i32, y: i32, pages: bool },
     ScrollTo(f32, f32),
+    /// The element's `El::a11y_action` at this place in its list.
+    Custom(usize),
 }
 
 /// One scroll "item" in points: about a line of body text.
@@ -95,6 +97,14 @@ impl<S: 'static> Runtime<S> {
                 Action::A11y(path, A11yAct::Select(a, b))
             }
             (Ak::ScrollIntoView, _) => Action::A11y(path, A11yAct::ScrollIntoView),
+            (Ak::CustomAction, None) => match request.data {
+                Some(ActionData::CustomAction(id))
+                    if usize::try_from(id).is_ok_and(|id| handlers.and_then(|h| h.a11y_actions.as_deref()).is_some_and(|a| id < a.len())) =>
+                {
+                    Action::A11y(path, A11yAct::Custom(id as usize))
+                }
+                _ => return false,
+            },
             (Ak::ScrollUp | Ak::ScrollDown | Ak::ScrollLeft | Ak::ScrollRight, None) if scrolls => {
                 let pages = !matches!(request.data, Some(ActionData::ScrollUnit(ScrollUnit::Item)));
                 let (x, y) = match request.action {
@@ -170,6 +180,12 @@ impl<S: 'static> Runtime<S> {
             }
             A11yAct::ScrollTo(x, y) => {
                 tx.scroll_to_instant(path, x, y);
+                true
+            }
+            A11yAct::Custom(index) => {
+                let Some(f) = self.node(&path).and_then(|n| n.handlers.get()?.a11y_actions.as_deref()?.get(index).map(|(_, f)| f.clone())) else { return false };
+                log_event!(self, "a11y action {index} {path}");
+                f(states!(self), tx);
                 true
             }
         }

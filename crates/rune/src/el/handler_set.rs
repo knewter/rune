@@ -43,6 +43,8 @@ pub(crate) struct Handlers {
     pub on_selection_change: Option<SelectionChangeFn>,
     pub cursor: Option<Cursor>,
     pub press_scale: Option<f32>,
+    /// `El::a11y_action`: what assistive technology offers by name beside a press, in order.
+    pub a11y_actions: Option<std::rc::Rc<[(String, PressFn)]>>,
     /// Debug builds: where the app set the handlers the commit warnings name.
     #[cfg(debug_assertions)]
     pub sites: HandlerSites,
@@ -121,6 +123,7 @@ impl Empty for Handlers {
         on_selection_change: None,
         cursor: None,
         press_scale: None,
+        a11y_actions: None,
         #[cfg(debug_assertions)]
         sites: HandlerSites { hover: None, hover_change: None, pointer_move: None, layout: None, drawn_layout: None, visible_rows: None },
     };

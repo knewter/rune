@@ -33,8 +33,10 @@ impl<S: 'static> Runtime<S> {
             has_text: text.is_some_and(|t| !t.source_text().trim().is_empty() || t.redacted),
             image: n.vis.pixels.is_some() || n.vis.surface.is_some(),
         };
-        // A control the keyboard reaches is always in the tree, whatever its role says.
-        roles::map(n.role, &cx).or_else(|| (input.is_some() || self.can_focus(i)).then_some(Role::Group))
+        // A control the keyboard reaches is always in the tree, whatever its role says, and so is
+        // an element offering actions by name: a reader can only run what it can stop on.
+        let offers = handlers.is_some_and(|h| h.a11y_actions.as_deref().is_some_and(|a| !a.is_empty()));
+        roles::map(n.role, &cx).or_else(|| (input.is_some() || self.can_focus(i) || offers).then_some(Role::Group))
     }
 
     /// A hash of everything [`Self::a11y_node`] and its text's lines and links read of node
@@ -52,6 +54,9 @@ impl<S: 'static> Runtime<S> {
         n.a11y.checked.hash(&mut h);
         n.a11y.disabled.hash(&mut h);
         n.a11y.live.hash(&mut h);
+        if let Some(actions) = n.handlers.get().and_then(|h| h.a11y_actions.as_deref()) {
+            actions.iter().for_each(|(label, _)| label.hash(&mut h));
+        }
         if let Some(m) = n.a11y.more.as_deref() {
             (&m.description, &m.value, &m.set, &m.shortcut, m.invalid, m.read_only, m.sorted).hash(&mut h);
             if let Some(r) = m.range { [r.value, r.min, r.max, r.step.unwrap_or(f64::NAN)].map(f64::to_bits).hash(&mut h); }
@@ -231,6 +236,13 @@ impl<S: 'static> Runtime<S> {
             }
         }
         if w.scrolled { node.add_action(Ak::ScrollIntoView); }
+        // The actions offered by name, each by its place in the element's list.
+        if let Some(actions) = handlers.and_then(|h| h.a11y_actions.as_deref()).filter(|_| actionable) {
+            for (id, (label, _)) in actions.iter().enumerate() {
+                node.push_custom_action(accesskit::CustomAction { id: id as i32, description: label.clone() });
+            }
+            if !actions.is_empty() { node.add_action(Ak::CustomAction); }
+        }
         if let Some(input) = input { self.a11y_input(i, input, &mut node); }
         node
     }
