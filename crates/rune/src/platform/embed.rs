@@ -71,6 +71,9 @@ pub struct LayerHost<S: 'static> {
     suspended: bool,
     /// Whether the embedding host shows file dialogs itself ([`LayerHost::host_file_dialogs`]).
     hosts_file_dialogs: bool,
+    /// The surface's alpha mode before [`LayerHost::set_translucent`] first changed it.
+    #[cfg(target_os = "android")]
+    resting_alpha: Option<wgpu::CompositeAlphaMode>,
 }
 
 impl<S: 'static> LayerHost<S> {
@@ -114,6 +117,31 @@ impl<S: 'static> LayerHost<S> {
     ) -> Result<Self, String> {
         let target = android_target(window).ok_or("null ANativeWindow pointer")?;
         unsafe { Self::attach(target, spec, state, viewport, scale, dark, wake) }
+    }
+
+    /// Whether frames keep their alpha, for a window Android shows over another app (a sheet
+    /// over a scrim): the swapchain composites what is under the pixels Rune leaves clear, and
+    /// the runtime clears to nothing. Call it after [`set_android_native_window`](Self::set_android_native_window),
+    /// with the window's own `Surface` already translucent (`PixelFormat.TRANSLUCENT`). Returns
+    /// whether the surface composites alpha; where it can't, frames stay opaque.
+    ///
+    /// Rune composes premultiplied, which is what Android blends: `PreMultiplied` where the
+    /// driver names it, else `Inherit` (SurfaceFlinger's own premultiplied blend).
+    #[cfg(target_os = "android")]
+    pub fn set_translucent(&mut self, on: bool) -> bool {
+        let resting = *self.resting_alpha.get_or_insert(self.config.alpha_mode);
+        let wanted = on.then(|| {
+            let caps = self.surface.as_ref()?.get_capabilities(&self.gpu.adapter);
+            [wgpu::CompositeAlphaMode::PreMultiplied, wgpu::CompositeAlphaMode::Inherit].into_iter().find(|mode| caps.alpha_modes.contains(mode))
+        }).flatten();
+        let mode = wanted.unwrap_or(resting);
+        if self.config.alpha_mode != mode {
+            self.config.alpha_mode = mode;
+            if let Some(surface) = &self.surface { surface.configure(&self.gpu.device, &self.config); }
+        }
+        self.rt.transparent = wanted.is_some();
+        self.rt.invalidate();
+        wanted.is_some()
     }
 
     /// Draws into `window` from now on, keeping the runtime; null drops the surface, and frames
@@ -180,6 +208,8 @@ impl<S: 'static> LayerHost<S> {
             clock: FrameClock::new(now),
             suspended: viewport.0 <= 0.0 || viewport.1 <= 0.0,
             hosts_file_dialogs: false,
+            #[cfg(target_os = "android")]
+            resting_alpha: None,
         })
     }
 
