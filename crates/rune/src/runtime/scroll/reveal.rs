@@ -11,15 +11,24 @@ pub(crate) struct ScrollReveal {
     pub center: bool,
     /// Glide there on the scroll spring rather than jump.
     pub animated: bool,
+    /// Scroll each viewport around the target's own too, so it shows in the window: focus
+    /// moved by a key, which may land in a dialog's body that scrolls inside a dialog layer
+    /// that scrolls (a television's tall dialog).
+    pub ancestors: bool,
 }
 
 impl ScrollReveal {
     pub fn into_view(scope: Option<String>, key: String) -> Self {
-        ScrollReveal { scope, key, center: false, animated: false }
+        ScrollReveal { scope, key, center: false, animated: false, ancestors: false }
+    }
+
+    /// [`Self::into_view`] for the element focus moved to, in every viewport around it.
+    pub fn focused(path: String) -> Self {
+        ScrollReveal { ancestors: true, ..Self::into_view(None, path) }
     }
 
     pub fn center(scope: Option<String>, key: String, animated: bool) -> Self {
-        ScrollReveal { scope, key, center: true, animated }
+        ScrollReveal { scope, key, center: true, animated, ancestors: false }
     }
 }
 
@@ -66,6 +75,47 @@ impl<S: 'static> Runtime<S> {
             }
         }
         self.reveal_row_x(scope, key);
+        if r.ancestors {
+            self.reveal_in_outer_viewports(scope, key);
+        }
+    }
+
+    /// After the target's own viewport placed it, scrolls each viewport around that one to
+    /// show what of it the inner one shows. Laid-out rects ignore scroll offsets, so at each
+    /// level the visible part is the target's rect less the inner offset, cut to the inner
+    /// viewport.
+    fn reveal_in_outer_viewports(&mut self, scope: Option<&str>, key: &str) {
+        let Some(i) = (0..self.nodes.len()).find(|&i| {
+            let row = &self.nodes[i];
+            row.named(key) && !self.subtree_exiting(i) && row.parent.is_none_or(|p| in_scope(&self.nodes[p].path, scope))
+        }) else { return };
+        let (mut top, mut height) = (f64::from(self.nodes[i].target[1]), f64::from(self.nodes[i].local.h));
+        let (mut inner, mut first) = (i, true);
+        while let Some(v) = self.viewport_of(inner) {
+            let (v_top, v_h) = (f64::from(self.nodes[v].target[1]), f64::from(self.nodes[v].local.h));
+            let margin = f64::from(self.nodes[v].scroll_edges.margin);
+            let max = self.scroll_overflow(v).max(0.0);
+            let id = self.nodes[v].id;
+            let Some(scroll) = self.scrolls.get_mut(&id) else { break };
+            if !first {
+                scroll.max = max;
+                let offset = scroll_edge::reveal(scroll.offset, top - v_top, height, v_h, margin).clamp(0.0, max);
+                if (offset - scroll.offset).abs() >= 0.5 {
+                    scroll.offset = offset;
+                    scroll.pinned = false;
+                    scroll.v = 0.0;
+                    scroll.glide = None;
+                    scroll.glide_to = None;
+                    scroll.direct = true;
+                }
+            }
+            let shown_top = (top - v_top - scroll.offset).max(0.0);
+            let shown_bottom = (top - v_top - scroll.offset + height).min(v_h);
+            top = v_top + shown_top;
+            height = (shown_bottom - shown_top).max(0.0);
+            first = false;
+            inner = v;
+        }
     }
 
     /// One placement of [`Self::reveal_row`]: whether it committed, and on the first, where the

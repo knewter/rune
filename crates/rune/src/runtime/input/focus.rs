@@ -356,7 +356,7 @@ impl<S: 'static> Runtime<S> {
             };
             let path = self.nodes[order[next]].path.clone();
             self.set_focus(Some(path.clone()), true);
-            tx.scroll_to.push(crate::runtime::ScrollReveal::into_view(None, path));
+            tx.scroll_to.push(crate::runtime::ScrollReveal::focused(path));
             self.enter_links(order[next], ev.mods.shift);
             return true;
         }
@@ -366,7 +366,7 @@ impl<S: 'static> Runtime<S> {
             let Some(&first) = self.tab_order().first() else { return false };
             let path = self.nodes[first].path.clone();
             self.set_focus(Some(path.clone()), true);
-            tx.scroll_to.push(crate::runtime::ScrollReveal::into_view(None, path));
+            tx.scroll_to.push(crate::runtime::ScrollReveal::focused(path));
             return true;
         }
         let Some(i) = self.focused_index() else { return false; };
@@ -401,7 +401,7 @@ impl<S: 'static> Runtime<S> {
             let action = follows.then(|| self.nodes[next].handlers.on_press.clone()).flatten();
             let path = self.nodes[next].path.clone();
             self.set_focus(Some(path.clone()), true);
-            tx.scroll_to.push(crate::runtime::ScrollReveal::into_view(None, path));
+            tx.scroll_to.push(crate::runtime::ScrollReveal::focused(path));
             if let Some(f) = action { f(states!(self), tx); }
             return true;
         }
@@ -436,7 +436,7 @@ impl<S: 'static> Runtime<S> {
                 let action = follows.then(|| n.handlers.on_press.clone()).flatten();
                 let path = n.path.clone();
                 self.set_focus(Some(path.clone()), true);
-                tx.scroll_to.push(crate::runtime::ScrollReveal::into_view(None, path));
+                tx.scroll_to.push(crate::runtime::ScrollReveal::focused(path));
                 if let Some(f) = action { f(states!(self), tx); }
                 return true;
             }
