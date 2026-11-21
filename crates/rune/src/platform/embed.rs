@@ -270,7 +270,11 @@ impl<S: 'static> LayerHost<S> {
         }
         let Some(surface) = &self.surface else { return EmbedFrame::default() };
         let t0 = Instant::now();
-        let (animating, dt) = self.clock.advance(&mut self.rt, t0, false);
+        // A compositor's own motion (a backdrop easing toward its tilt, a theme fade) is running
+        // motion too, as the window host counts it (`window::presented::composing`): it gets
+        // the real gap, or it would step one 120 Hz frame per frame and crawl on a slow device.
+        let composing = self.compositor.as_ref().is_some_and(|c| c.animating());
+        let (animating, dt) = self.clock.advance(&mut self.rt, t0, composing);
         let update_ms = t0.elapsed().as_secs_f64() * 1000.0;
         crate::clipboard::flush_memory(&mut self.rt);
         if self.rt.popup_menu().is_some() {
