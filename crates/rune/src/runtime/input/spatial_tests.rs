@@ -143,3 +143,32 @@ fn a_field_not_being_typed_in_passes_the_remote_on() {
     step(&mut rt, Key::Down);
     assert_eq!(focused(&rt), "suggestion");
 }
+
+/// A sidebar whose places scroll above a machine button that stays put, as Dozer's drawer.
+#[derive(Default)]
+struct Drawer;
+
+fn drawer(_: &Drawer, _: &mut Cx<Drawer>) -> El {
+    let list = col().key("list").w_full().grow(1.0).shrink().min_h(0.0)
+        .scroll(crate::ScrollSpec { stick_bottom: false })
+        .children((0..4).map(|i| button(&format!("place-{i}"))))
+        // A section's heading, as "This machine" stands above Devices: the next place starts
+        // below the machine button's top.
+        .child(el().key("heading").size(100.0, 40.0))
+        .children((4..6).map(|i| button(&format!("place-{i}"))));
+    col().key("root").w(100.0).h(200.0).child(list).child(button("machine"))
+}
+
+/// Down from the last place the list shows goes to the next place, hidden past the list's
+/// end, not to the machine drawn beneath it; the machine comes after the last place.
+#[test]
+fn down_walks_a_scrolling_list_to_its_end_before_leaving_it() {
+    let mut rt = Runtime::new(Drawer, drawer, (100.0, 200.0), Env::new(true, 1.0));
+    rt.set_spatial_arrows(true);
+    rt.frame(0.0);
+    let step = |rt: &mut Runtime<Drawer>| { rt.key(KeyEvent { key: Key::Down, mods: Mods::default() }); for _ in 0..3 { rt.frame(0.1); } };
+    let focused = |rt: &Runtime<Drawer>| rt.elements().into_iter().find(|e| e.focused).and_then(|e| e.key).unwrap_or_default();
+    let mut walked = Vec::new();
+    for _ in 0..8 { step(&mut rt); walked.push(focused(&rt)); }
+    assert_eq!(walked, ["place-0", "place-1", "place-2", "place-3", "place-4", "place-5", "machine", "machine"]);
+}

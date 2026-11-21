@@ -60,13 +60,31 @@ impl<S: 'static> Runtime<S> {
         self.fields_keep_arrows = on;
     }
 
-    /// The focusable node an arrow from `from` lands on, or `None` at an edge.
+    /// The focusable node an arrow from `from` lands on, or `None` at an edge. Inside a scroll
+    /// view the next control in it comes first, even scrolled out of sight (focusing it
+    /// scrolls it in), as Android's `ScrollView.arrowScroll` does: otherwise a control drawn
+    /// past the list's end, the sidebar's machine beneath its scrolling places, is nearer than
+    /// the row the list hides, and the remote skips that row.
     pub(super) fn spatial_target(&self, from: usize, dir: Toward) -> Option<usize> {
         let at = *self.drawn.get(from)?;
-        let candidates = (0..self.nodes.len())
-            .filter(|&j| j != from && self.can_focus(j) && self.nodes[j].focus.order >= 0)
+        let candidates = || (0..self.nodes.len())
+            .filter(move |&j| j != from && self.can_focus(j) && self.nodes[j].focus.order >= 0)
             .filter_map(|j| Some((j, *self.drawn.get(j)?)));
-        nearest(at, dir, candidates)
+        if let Some(scroll) = self.scroll_around(from) {
+            let inside = candidates().filter(|&(j, _)| self.scroll_around(j).is_some_and(|s| self.within(s, scroll)));
+            if let Some(next) = nearest(at, dir, inside) { return Some(next); }
+        }
+        nearest(at, dir, candidates())
+    }
+
+    /// The nearest scroll view around node `i`.
+    fn scroll_around(&self, i: usize) -> Option<usize> {
+        std::iter::successors(self.nodes[i].parent, |&p| self.nodes[p].parent).find(|&p| self.nodes[p].scroll.is_some())
+    }
+
+    /// Whether node `i` is `ancestor` or inside it.
+    fn within(&self, i: usize, ancestor: usize) -> bool {
+        std::iter::successors(Some(i), |&p| self.nodes[p].parent).any(|p| p == ancestor)
     }
 }
 
