@@ -153,7 +153,12 @@ impl<S: 'static> LayerHost<S> {
             .ok_or_else(|| "the surface has no supported wgpu configuration".to_owned())?;
         surface.configure(&gpu.device, &config);
         let target_format = config.format.remove_srgb_suffix();
-        let mut renderer = Renderer::new(&gpu.device, target_format);
+        // A device that refuses the renderer (a shader, a pipeline) is an error the host can
+        // show, not wgpu's panic in its uncaptured-error handler across the host's FFI.
+        let (mut renderer, refused) = crate::render::halves::scoped(&gpu.device, || Renderer::new(&gpu.device, target_format));
+        if let Some(refused) = refused {
+            return Err(format!("this GPU ({}) refused Rune's renderer: {refused}", gpu.adapter.get_info().name));
+        }
         renderer.set_srgb_blend(true);
 
         let w = px_w as f32 / scale;

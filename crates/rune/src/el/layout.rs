@@ -48,6 +48,12 @@ impl El {
         self.style.set_height(percent(1.0));
         self
     }
+    /// At least as tall as the parent (CSS `min-height: 100%`): centred content in a scroll
+    /// view that is shorter than the view, and scrolls from its top when taller.
+    pub fn min_h_full(mut self) -> Self {
+        self.style.set_min_height(percent(1.0));
+        self
+    }
     /// Take a `g` share of the free space along the parent's main axis (CSS `flex: g 1 0`).
     ///
     /// This also sets flex-basis to 0 and allows shrinking, so the element's own content does

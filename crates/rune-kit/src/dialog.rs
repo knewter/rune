@@ -61,6 +61,11 @@ impl Dialog {
         let panel = close(panel).modal_click_outside(self.outside);
         layer.push(el().key(format!("{}-scrim", self.key)).absolute(0.0, 0.0).w_full().h_full()
             .fill(k.c.scrim).token_motion(k.motion.overlay).a11y_hidden());
-        layer.push(el().key(format!("{}-layer", self.key)).absolute(0.0, 0.0).w_full().h_full().padding(16.0).center().child(panel));
+        // Centred in the window, and scrolled with the layer when it is taller than the window
+        // (a television's 540 points): centred alone, its top and its focused Close were cut
+        // off above the window, and the dialog opened at its middle.
+        let fit = col().key("fit").w_full().min_h_full().padding(16.0).center().child(panel);
+        layer.push(el().key(format!("{}-layer", self.key)).absolute(0.0, 0.0).w_full().h_full()
+            .child(col().key("scroll").w_full().h_full().scroll(rune::ScrollSpec { stick_bottom: false }).child(fit)));
     }
 }

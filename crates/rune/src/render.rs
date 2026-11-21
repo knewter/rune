@@ -8,6 +8,7 @@ use crate::text::{ATLAS_SIZE, Atlas};
 mod backdrop_blur;
 mod dxbc;
 mod first_use;
+pub mod halves;
 pub(crate) mod gpu_events;
 pub(crate) mod layer_blur;
 mod layers;
@@ -747,10 +748,7 @@ impl Renderer {
     fn create(device: &wgpu::Device, format: wgpu::TextureFormat, properties: Option<(&[crate::gpu::springs::Node], &[u32])>) -> Renderer {
         let spring_shader = if properties.is_some() {
             let source = format!("{CLIP_WGSL}\n{}\n{}", include_str!("shader.wgsl"), crate::gpu::springs::SHADER);
-            Some(device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("uber"),
-                source: wgpu::ShaderSource::Wgsl(source.into()),
-            }))
+            Some(halves::shader_module(device, "uber", &source))
         } else {
             None
         };

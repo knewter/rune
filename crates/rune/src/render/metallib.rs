@@ -133,10 +133,7 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
 }
 
 fn wgsl_shader(device: &wgpu::Device, wgsl: &str) -> wgpu::ShaderModule {
-    device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("uber"),
-        source: wgpu::ShaderSource::Wgsl(wgsl.into()),
-    })
+    super::halves::shader_module(device, "uber", wgsl)
 }
 
 pub(super) fn uber_shader_and_pipeline(

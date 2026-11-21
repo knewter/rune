@@ -2062,6 +2062,8 @@ and its goldens are unchanged. `examples/lab` uses it to composite `rune-light` 
   rounded corners as the primitives around it. A compositor that skips this still gets the hard
   clip rectangle from the scissor. A rounded clip on an isolated layer applies to the completed
   layer instead, so nothing extra is needed there.
+  Compile such a shader with `render::halves::shader_module`: `clip_alpha` unpacks halves, which
+  some devices refuse (the Android emulator's guest Vulkan), and it then unpacks them in the shader.
 
 ### Isolated opacity
 
