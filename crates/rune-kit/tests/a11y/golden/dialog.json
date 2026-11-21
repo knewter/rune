@@ -7,53 +7,79 @@
             {
               "children": [
                 {
-                  "children": [
-                    {
-                      "name": "Delete file?",
-                      "role": "label"
-                    },
-                    {
-                      "name": "This can't be undone.",
-                      "role": "label"
-                    },
-                    {
-                      "actions": [
-                        "click",
-                        "focus"
-                      ],
-                      "key": "close",
-                      "name": "Close",
-                      "role": "button",
-                      "states": [
-                        "focused"
-                      ]
-                    }
+                  "actions": [
+                    "scroll-into-view"
                   ],
-                  "key": "header",
-                  "role": "group"
-                },
-                {
                   "children": [
                     {
                       "actions": [
-                        "click",
-                        "focus"
+                        "scroll-into-view"
                       ],
-                      "key": "confirm-delete",
-                      "name": "Delete",
-                      "role": "button"
+                      "children": [
+                        {
+                          "actions": [
+                            "scroll-into-view"
+                          ],
+                          "name": "Delete file?",
+                          "role": "label"
+                        },
+                        {
+                          "actions": [
+                            "scroll-into-view"
+                          ],
+                          "name": "This can't be undone.",
+                          "role": "label"
+                        },
+                        {
+                          "actions": [
+                            "click",
+                            "focus",
+                            "scroll-into-view"
+                          ],
+                          "key": "close",
+                          "name": "Close",
+                          "role": "button",
+                          "states": [
+                            "focused"
+                          ]
+                        }
+                      ],
+                      "key": "header",
+                      "role": "group"
+                    },
+                    {
+                      "actions": [
+                        "scroll-into-view"
+                      ],
+                      "children": [
+                        {
+                          "actions": [
+                            "click",
+                            "focus",
+                            "scroll-into-view"
+                          ],
+                          "key": "confirm-delete",
+                          "name": "Delete",
+                          "role": "button"
+                        }
+                      ],
+                      "key": "body",
+                      "role": "group"
                     }
                   ],
-                  "key": "body",
-                  "role": "group"
+                  "description": "This can't be undone.",
+                  "key": "confirm-dialog",
+                  "name": "Delete file?",
+                  "role": "dialog",
+                  "states": [
+                    "modal"
+                  ]
                 }
               ],
-              "description": "This can't be undone.",
-              "key": "confirm-dialog",
-              "name": "Delete file?",
-              "role": "dialog",
+              "key": "scroll",
+              "role": "scroll-view",
               "states": [
-                "modal"
+                "clips"
               ]
             }
           ],
