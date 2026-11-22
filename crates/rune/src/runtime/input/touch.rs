@@ -5,8 +5,9 @@
 //! the press. A second finger makes the two a pinch: the first finger's press and pan are
 //! let go, and the change in the fingers' distance reaches the `El::on_magnify` handlers
 //! under their midpoint, as a trackpad's pinch does, until either lifts. Further fingers are
-//! ignored meanwhile. A finger held still on selectable text selects instead
-//! (`touch_select.rs`).
+//! ignored meanwhile. A finger held still selects the word under it, or opens the context menu
+//! of what it is on where that is not selectable text (`touch_select.rs`); one that left the
+//! slop first is a drag or a pan and never becomes a long press.
 use super::*;
 
 #[path = "touch_select.rs"]
@@ -34,8 +35,11 @@ pub(super) struct Touch {
     pub(super) scroll: Option<scroll_touch::TouchScroll>,
     finger: Option<Finger>,
     pinch: Option<Pinch>,
-    /// When (runtime clock) the finger down now selects instead of pressing.
+    /// When (host time on the runtime clock) the finger down now selects instead of pressing.
     long_due: Option<f64>,
+    /// The host's long-press time in seconds (`Runtime::set_long_press_timeout`), else
+    /// `touch_select::LONG_PRESS`.
+    long_press: Option<f64>,
 }
 
 /// Two fingers pinching: where each is, and their distance at the last event.
@@ -79,6 +83,8 @@ enum Mode {
     Pan,
     /// Selecting text: after a long press, or holding a selection handle.
     Select,
+    /// Its long press opened a context menu: it presses and moves nothing more.
+    Held,
 }
 
 impl<S: 'static> Runtime<S> {
@@ -109,6 +115,7 @@ impl<S: 'static> Runtime<S> {
         if self.touch.pinch.is_some() { return; }
         if let Some(first) = self.touch.finger.take_if(|f| f.id != id) {
             // A second finger: what the first pressed or panned is let go, unclicked.
+            self.touch.long_due = None;
             self.touch_scroll_end(first.scroll, 0.0);
             self.cancel_pointer();
             self.pointer_leave();
@@ -151,6 +158,8 @@ impl<S: 'static> Runtime<S> {
         let (dx, dy) = (x - f.origin.0, y - f.origin.1);
         if f.mode == Mode::Pending && dx.hypot(dy) > TOUCH_SLOP {
             let (origin, scroll) = (f.origin, f.scroll);
+            // Past the slop it is a drag or a pan for good: no long press is still to come.
+            self.touch.long_due = None;
             let (scroll, horizontal) = if self.press_drags() { (None, false) } else { self.touch_scroll_pan(origin.0, origin.1, dx.abs() > dy.abs(), scroll) };
             let f = self.touch.finger.as_mut().unwrap();
             (f.scroll, f.horizontal, f.mode) = (scroll, horizontal, if scroll.is_some() { Mode::Pan } else { Mode::Drag });
@@ -176,6 +185,12 @@ impl<S: 'static> Runtime<S> {
             return;
         }
         let Some(f) = self.touch.finger.take_if(|f| f.id == id) else { return };
+        self.touch.long_due = None;
+        if f.mode == Mode::Held {
+            // The menu it opened stays; the press was let go when it opened.
+            self.pointer_leave();
+            return;
+        }
         if f.mode == Mode::Select {
             // The selection stays, cancelled or not; nothing was pressed to release.
             self.text_sel.dragging = false;

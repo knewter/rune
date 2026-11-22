@@ -137,6 +137,9 @@ pub(crate) fn note_read_at(reads: &mut LayoutReads, key: &str, same: Option<Same
 pub(crate) struct LayoutRects {
     rects: HashMap<String, Option<[f32; 4]>>,
     pub(crate) selection: Rc<[[f32; 4]]>,
+    /// Where the selection's first text shows (x0, y0, x1, y1) and its path, as of the commit
+    /// the boxes were last given from (`Cx::selection_clip`, `Cx::selection_path`).
+    pub(crate) selection_in: Option<([f32; 4], Rc<str>)>,
 }
 
 impl std::ops::Deref for LayoutRects {
@@ -363,6 +366,7 @@ impl<S: 'static> Runtime<S> {
             Some((nodes, ranges)) => self.selection_boxes_in(nodes, ranges),
             None => self.selection_boxes(),
         });
+        let within = boxes.as_ref().and_then(|_| self.selection_within());
         let rects = &mut self.layout_seen.rects;
         let moved = reads.iter().zip(&now).position(|(r, rect)| rects.get(&r.key).is_none_or(|old| r.moved(*old, *rect)));
         let changed = moved.is_some() || boxes.as_ref().is_some_and(|b| boxes_moved(&rects.selection, b));
@@ -370,7 +374,7 @@ impl<S: 'static> Runtime<S> {
         #[cfg(debug_assertions)]
         if !nodes_given && let Some(k) = moved { self.watch.meter.read(&reads[k].key, reads[k].at); }
         if changed || force {
-            if let Some(b) = boxes { rects.selection = b.into(); }
+            if let Some(b) = boxes { (rects.selection, rects.selection_in) = (b.into(), within); }
             for (r, rect) in reads.iter().zip(now) {
                 match rects.get_mut(&r.key) {
                     Some(seen) => *seen = rect,
@@ -390,7 +394,10 @@ impl<S: 'static> Runtime<S> {
         let index = self.key_index.get(&self.nodes, self.commit_gen);
         let now: Vec<_> = self.layout_seen.rects.keys().map(|k| self.layout_of(&self.nodes, index, k)).collect();
         for (seen, rect) in self.layout_seen.rects.values_mut().zip(now) { *seen = rect; }
-        if self.layout_seen.rects.contains_key(SELECTION) { self.layout_seen.rects.selection = self.selection_boxes().into(); }
+        if self.layout_seen.rects.contains_key(SELECTION) {
+            self.layout_seen.rects.selection = self.selection_boxes().into();
+            self.layout_seen.rects.selection_in = self.selection_within();
+        }
     }
 
     /// Once a frame: whether a layout read moved, so the view re-runs. Scrolling reopens
@@ -423,7 +430,7 @@ impl<S: 'static> Runtime<S> {
         if !settled { self.layout_moved(Some(std::mem::take(&mut measured.layout_reads)), Some((&measured.nodes, &measured.selection)), true); }
         let LayoutSeen { rects, reads } = &mut self.layout_seen;
         rects.retain(|k, _| reads.iter().any(|r| r.key == *k));
-        if !rects.contains_key(SELECTION) { rects.selection = Rc::default(); }
+        if !rects.contains_key(SELECTION) { (rects.selection, rects.selection_in) = (Rc::default(), None); }
         measured
     }
 

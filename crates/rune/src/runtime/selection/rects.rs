@@ -28,6 +28,25 @@ impl<S> Cx<S> {
         crate::memo::read_selection(&self.layout.selection);
         self.layout.selection.to_vec()
     }
+
+    /// The part of the window `[x0, y0, x1, y1]` the selection's first text shows in: the
+    /// clips around it, so the scroll viewport it is read in. A view that draws over the
+    /// selection (handles, a toolbar) keeps to it, and draws nothing for a box outside it.
+    /// None with no selection. It is read with [`Self::selection_rects`] and is as old as the
+    /// boxes that returned: a clip moves only when layout does, and the boxes move with it.
+    pub fn selection_clip(&self) -> Option<[f32; 4]> {
+        layout_read::note_read(&mut self.layout_reads.borrow_mut(), SELECTION, None);
+        crate::memo::read_selection(&self.layout.selection);
+        self.layout.selection_in.as_ref().map(|(clip, _)| *clip)
+    }
+
+    /// The path of the selection's first text ([`ElementInfo::path`](crate::ElementInfo)):
+    /// which of a view's texts the selection is in, read as [`Self::selection_clip`] is.
+    pub fn selection_path(&self) -> Option<String> {
+        layout_read::note_read(&mut self.layout_reads.borrow_mut(), SELECTION, None);
+        crate::memo::read_selection(&self.layout.selection);
+        self.layout.selection_in.as_ref().map(|(_, path)| path.to_string())
+    }
 }
 
 /// Bytes `a..b` of the text at a path.
@@ -78,6 +97,12 @@ impl<S: 'static> Runtime<S> {
             let (x0, y0) = (ox + bb.x0 as f32 / s, oy + bb.y0 as f32 / s);
             out.push([x0, y0, (bb.x1 - bb.x0) as f32 / s, (bb.y1 - bb.y0) as f32 / s]);
         }
+    }
+
+    /// Where the selection's first text shows, and its path, in the last commit's nodes.
+    pub(in crate::runtime) fn selection_within(&self) -> Option<([f32; 4], Rc<str>)> {
+        let (i, ..) = *self.selection_ranges().first()?;
+        Some((self.selection_clip()?, self.nodes[i].path.as_str().into()))
     }
 
     /// Once a frame: the selection moved since the view last read it (a drag, a click, code,
