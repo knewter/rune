@@ -43,6 +43,22 @@ impl El {
         self.handlers.on_drag = Some(Rc::new(move |s, d, tx| f(downcast::<S>(s), d, tx)));
         self
     }
+    /// A finger's horizontal swipe anywhere in this element that nothing inside it takes, as
+    /// Compose's `anchoredDraggable(orientation = Horizontal)` hears one over its content: a
+    /// modal drawer opened from the page, or closed by swiping its own rows. Touch only; a
+    /// pointer's drag still selects text and drags what it pressed.
+    ///
+    /// The finger becomes a swipe once it leaves the touch slop mostly sideways, and only when
+    /// what it pressed doesn't drag itself ([`El::on_drag`]), no viewport under it scrolls
+    /// sideways, it isn't in a text field and it isn't selecting. Then the press is let go
+    /// unclicked, and `f` hears `Phase::Down` at the press, `Move` as the finger goes and `Up`
+    /// at the lift, with [`Drag::velocity`] for the fling (check [`Drag::cancelled`] there: a
+    /// second finger or the system taking the touch). A swipe mostly up or down pans the
+    /// viewport as before. The innermost element with a swipe under the press takes it.
+    pub fn on_swipe<S: 'static>(mut self, f: impl Fn(&mut S, &mut Drag, &mut Tx) + 'static) -> Self {
+        self.handlers.on_swipe = Some(Rc::new(move |s, d, tx| f(downcast::<S>(s), d, tx)));
+        self
+    }
     /// [`El::on_drag`] for a component that doesn't read the app's state (a scroll bar that
     /// only scrolls through its `Tx`), so it works in any app.
     pub fn on_drag_any(mut self, f: impl Fn(&mut Drag, &mut Tx) + 'static) -> Self {

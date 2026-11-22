@@ -77,6 +77,10 @@ pub struct Drag {
     /// interval and 4 pt of the one before. A press that drags past 4 pt ends the run. A text
     /// view selects by words on 2 and lines on 3, and extends by them as the drag moves.
     pub clicks: u32,
+    /// Points per second along the gesture's axis, on a finger's [`El::on_swipe`]: horizontal,
+    /// positive towards the right, as the finger last moved. On `Phase::Up` it is the fling a
+    /// lift throws, and 0 when the finger rested before lifting. 0 on every pointer drag.
+    pub velocity: f32,
     pub(crate) cancelled: bool,
 }
 

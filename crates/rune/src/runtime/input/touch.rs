@@ -7,7 +7,9 @@
 //! under their midpoint, as a trackpad's pinch does, until either lifts. Further fingers are
 //! ignored meanwhile. A finger held still selects the word under it, or opens the context menu
 //! of what it is on where that is not selectable text (`touch_select.rs`); one that left the
-//! slop first is a drag or a pan and never becomes a long press.
+//! slop first is a drag or a pan and never becomes a long press. One that leaves it mostly
+//! sideways, where nothing under it drags or scrolls sideways, is the swipe of the innermost
+//! element under it that hears one (`El::on_swipe`: a modal drawer's).
 use super::*;
 
 #[path = "touch_select.rs"]
@@ -73,6 +75,8 @@ struct Finger {
     /// The vertical viewport under the finger, held until the pan picks its axis.
     scroll: Option<NodeId>,
     horizontal: bool,
+    /// The element whose swipe the finger is, once it is one.
+    swipe: Option<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -85,6 +89,8 @@ enum Mode {
     Select,
     /// Its long press opened a context menu: it presses and moves nothing more.
     Held,
+    /// An element's swipe (`El::on_swipe`): it presses nothing and pans nothing.
+    Swipe,
 }
 
 impl<S: 'static> Runtime<S> {
@@ -117,6 +123,7 @@ impl<S: 'static> Runtime<S> {
             // A second finger: what the first pressed or panned is let go, unclicked.
             self.touch.long_due = None;
             self.touch_scroll_end(first.scroll, 0.0);
+            if let Some(path) = &first.swipe { self.swipe_event(path, Phase::Up, first.at_point.0, first.at_point.1, first.origin, 0.0, true); }
             self.cancel_pointer();
             self.pointer_leave();
             let pinch = Pinch { fingers: [(first.id, first.at_point), (id, (x, y))], distance: 0.0 };
@@ -128,13 +135,13 @@ impl<S: 'static> Runtime<S> {
         }
         if self.touch.finger.is_some() { return; }
         if self.take_handle(x, y) {
-            self.touch.finger = Some(Finger { id, origin: (x, y), at_point: (x, y), last: 0.0, at: time, velocity: 0.0, mode: Mode::Select, scroll: None, horizontal: false });
+            self.touch.finger = Some(Finger { id, origin: (x, y), at_point: (x, y), last: 0.0, at: time, velocity: 0.0, mode: Mode::Select, scroll: None, horizontal: false, swipe: None });
             return;
         }
         let scroll = self.touch_scroll_start(x, y);
         self.pointer_move(x, y);
         self.pointer_down(x, y);
-        self.touch.finger = Some(Finger { id, origin: (x, y), at_point: (x, y), last: 0.0, at: time, velocity: 0.0, mode: Mode::Pending, scroll, horizontal: false });
+        self.touch.finger = Some(Finger { id, origin: (x, y), at_point: (x, y), last: 0.0, at: time, velocity: 0.0, mode: Mode::Pending, scroll, horizontal: false, swipe: None });
         self.arm_long_press();
     }
 
@@ -165,9 +172,18 @@ impl<S: 'static> Runtime<S> {
             // the selection its press began (a pointer's drag selects) is not a finger's to extend.
             self.touch.long_due = None;
             self.text_sel.dragging = false;
-            let (scroll, horizontal) = if self.press_drags() { (None, false) } else { self.touch_scroll_pan(origin.0, origin.1, dx.abs() > dy.abs(), scroll) };
-            let f = self.touch.finger.as_mut().unwrap();
-            (f.scroll, f.horizontal, f.mode) = (scroll, horizontal, if scroll.is_some() { Mode::Pan } else { Mode::Drag });
+            if let Some(path) = self.swipe_target(origin, dx, dy) {
+                // The press is let go unclicked, and the viewport it caught lets go too.
+                self.touch_scroll_end(scroll, 0.0);
+                self.cancel_pointer();
+                self.swipe_event(&path, Phase::Down, origin.0, origin.1, origin, 0.0, false);
+                let f = self.touch.finger.as_mut().unwrap();
+                (f.scroll, f.horizontal, f.mode, f.swipe) = (None, true, Mode::Swipe, Some(path));
+            } else {
+                let (scroll, horizontal) = if self.press_drags() { (None, false) } else { self.touch_scroll_pan(origin.0, origin.1, dx.abs() > dy.abs(), scroll) };
+                let f = self.touch.finger.as_mut().unwrap();
+                (f.scroll, f.horizontal, f.mode) = (scroll, horizontal, if scroll.is_some() { Mode::Pan } else { Mode::Drag });
+            }
         }
         let f = self.touch.finger.as_mut().unwrap();
         let along = if f.horizontal { dx } else { dy };
@@ -178,6 +194,10 @@ impl<S: 'static> Runtime<S> {
             (Mode::Pan, Some(scroll)) => self.touch_scroll_move(scroll, along),
             (Mode::Drag, _) => self.pointer_move(x, y),
             (Mode::Select, _) => self.selection_drag(x, y),
+            (Mode::Swipe, _) => {
+                let (path, origin, velocity) = (f.swipe.clone(), f.origin, f.velocity);
+                if let Some(path) = path { self.swipe_event(&path, Phase::Move, x, y, origin, velocity, false); }
+            }
             _ => {}
         }
     }
@@ -203,6 +223,11 @@ impl<S: 'static> Runtime<S> {
             self.pointer_leave();
             return;
         }
+        if f.mode == Mode::Swipe {
+            let velocity = if !cancelled && time - f.at < FLING_HOLD { f.velocity } else { 0.0 };
+            if let Some(path) = &f.swipe { self.swipe_event(path, Phase::Up, x, y, f.origin, velocity, cancelled); }
+            return;
+        }
         if f.mode == Mode::Select {
             // The selection stays, cancelled or not; nothing was pressed to release.
             self.text_sel.dragging = false;
@@ -224,12 +249,41 @@ impl<S: 'static> Runtime<S> {
         self.pointer_leave();
     }
 
+    /// The element whose swipe a finger pressed at `origin` is, now that it left the slop by
+    /// (dx, dy): mostly sideways, on nothing that drags itself, in no text field, over no
+    /// viewport with room to scroll sideways, and under an element that hears a swipe.
+    fn swipe_target(&self, (x, y): (f32, f32), dx: f32, dy: f32) -> Option<String> {
+        if dx.abs() <= dy.abs() || self.press_drags() || self.input_click.captured { return None; }
+        let sideways = self.scroll_at_axis(x, y, true).and_then(|id| self.scrolls.get(&id)).is_some_and(|st| st.x.max > 0.5);
+        if sideways { return None; }
+        let hit = self.hits.iter().rev().find(|&&(id, r)| self.hit_contains(id, r, x, y)).and_then(|(id, _)| self.node_index.get(id).copied());
+        std::iter::successors(hit, |&i| self.nodes[i].parent)
+            .take_while(|&i| !self.subtree_exiting(i) && self.allowed(i))
+            .find(|&i| self.nodes[i].handlers.on_swipe.is_some())
+            .map(|i| self.nodes[i].path.clone())
+    }
+
+    /// Tell the swipe's element where the finger is.
+    #[allow(clippy::too_many_arguments)]
+    fn swipe_event(&mut self, path: &str, phase: Phase, x: f32, y: f32, origin: (f32, f32), velocity: f32, cancelled: bool) {
+        let Some(i) = self.live_index(path) else { return };
+        let r = self.nodes[i].target;
+        let [lx, ly] = self.to_local(i, x, y);
+        let [sx, sy] = self.to_local(i, origin.0, origin.1);
+        let d = Drag { phase, x: lx, y: ly, w: r[2] - r[0], h: r[3] - r[1], start_x: sx, start_y: sy, dx: x - origin.0, dy: y - origin.1, data: 0.0, clicks: 1, velocity, cancelled };
+        self.queue.push(Action::Swipe(path.to_owned(), d));
+    }
+
     /// Whether the held press is on an element that drags, so a finger drags it, not the page.
     fn press_drags(&self) -> bool {
         let Some((path, _)) = &self.capture else { return false };
         self.live_index(path).is_some_and(|i| self.nodes[i].handlers.on_drag.is_some() && !self.drags_out(&self.nodes[i]))
     }
 }
+
+#[cfg(test)]
+#[path = "touch_swipe_tests.rs"]
+mod swipe_tests;
 
 #[cfg(test)]
 mod tests {

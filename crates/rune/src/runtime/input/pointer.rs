@@ -254,6 +254,7 @@ impl<S: 'static> Runtime<S> {
             dy: 0.0,
             data: 0.0,
             clicks,
+            velocity: 0.0,
             cancelled: false,
         };
         let path = n.path.clone();

@@ -23,6 +23,8 @@ pub(crate) struct Handlers {
     /// `on_wheel`, `on_magnify` and the other canvas handlers (`canvas_input.rs`).
     pub gestures: Option<Box<crate::input::canvas_input::CanvasInput>>,
     pub on_drag: Option<DragFn>,
+    /// `El::on_swipe`: a finger's horizontal swipe that nothing inside the element takes.
+    pub on_swipe: Option<DragFn>,
     pub drag_out: Option<DragOutFn>,
     pub drag_threshold: Option<f32>,
     pub on_drag_start: Option<PressFn>,
@@ -86,6 +88,7 @@ impl Handlers {
             || self.on_hover_change.is_some()
             || self.on_drag.is_some()
             || self.drag_out.is_some()
+            || self.on_swipe.is_some()
             || self.modal.is_some()
             || self.gestures.as_ref().is_some_and(|g| g.takes_gestures())
     }
@@ -105,6 +108,7 @@ impl Empty for Handlers {
         on_pointer_move: None,
         gestures: None,
         on_drag: None,
+        on_swipe: None,
         drag_out: None,
         drag_threshold: None,
         on_drag_start: None,
