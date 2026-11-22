@@ -154,12 +154,17 @@ impl<S: 'static> Runtime<S> {
     fn touch_move(&mut self, id: u64, x: f32, y: f32, time: f64) {
         if self.touch.pinch.is_some() { return self.pinch_move(id, x, y); }
         if let Some(f) = self.touch.finger.as_mut().filter(|f| f.id == id) { f.at_point = (x, y); }
+        // A host that hands over touches faster than it draws frames may not have drawn one since
+        // the long press came due: it is due by the clock, not by the frame.
+        self.fire_long_press();
         let Some(f) = self.touch.finger.as_ref().filter(|f| f.id == id) else { return };
         let (dx, dy) = (x - f.origin.0, y - f.origin.1);
         if f.mode == Mode::Pending && dx.hypot(dy) > TOUCH_SLOP {
             let (origin, scroll) = (f.origin, f.scroll);
-            // Past the slop it is a drag or a pan for good: no long press is still to come.
+            // Past the slop it is a drag or a pan for good: no long press is still to come, and
+            // the selection its press began (a pointer's drag selects) is not a finger's to extend.
             self.touch.long_due = None;
+            self.text_sel.dragging = false;
             let (scroll, horizontal) = if self.press_drags() { (None, false) } else { self.touch_scroll_pan(origin.0, origin.1, dx.abs() > dy.abs(), scroll) };
             let f = self.touch.finger.as_mut().unwrap();
             (f.scroll, f.horizontal, f.mode) = (scroll, horizontal, if scroll.is_some() { Mode::Pan } else { Mode::Drag });
@@ -183,6 +188,13 @@ impl<S: 'static> Runtime<S> {
             let (mx, my) = pinch.middle();
             self.magnify_event(MagnifyEvent::new(0.0).at(mx, my).phase(GesturePhase::Ended));
             return;
+        }
+        if self.touch.finger.as_ref().is_some_and(|f| f.id == id) && !cancelled {
+            self.fire_long_press();
+            // A lift somewhere the finger was never reported (a host too busy to hand over its
+            // moves) is a move there first: a pan the whole way, not a press released far off.
+            let far = |f: &Finger| f.mode == Mode::Pending && (x - f.origin.0).hypot(y - f.origin.1) > TOUCH_SLOP;
+            if self.touch.finger.as_ref().is_some_and(far) { self.touch_move(id, x, y, time); }
         }
         let Some(f) = self.touch.finger.take_if(|f| f.id == id) else { return };
         self.touch.long_due = None;

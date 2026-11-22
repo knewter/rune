@@ -315,3 +315,56 @@ fn a_view_reads_the_viewport_the_selection_shows_in_and_which_text_it_is() {
     assert!((clip[1] - 40.0).abs() < 0.5 && (clip[3] - 200.0).abs() < 0.5, "from under the head to the list's foot: {clip:?}");
     assert!(rt.state.path.borrow().as_deref().is_some_and(|p| p.split('/').any(|k| k == "words2")), "{:?}", rt.state.path.borrow());
 }
+
+#[test]
+fn a_lift_far_from_the_press_with_no_move_between_is_a_pan_and_selects_nothing() {
+    let mut rt = hosted(30.0);
+    let r = rect(&rt, "words3");
+    let (x, y) = (r[0] + 4.0, r[1] + r[3] / 2.0);
+    // A host too busy to hand over the moves: down, a frame, and the lift 60 points up.
+    rt.touch(1, TouchPhase::Started, x, y, 0.0);
+    rt.frame(1.0 / 60.0);
+    pass(&mut rt, 0.2);
+    rt.touch(1, TouchPhase::Ended, x, y - 60.0, 0.2);
+    rt.frame(1.0 / 60.0);
+    assert!(scrolled(&rt) >= 60.0, "the list went with the finger: {}", scrolled(&rt));
+    assert_eq!(rt.selected_text().filter(|t| !t.is_empty()), None, "no selection from the press to the lift");
+    assert!(rt.selection_handles().is_none());
+    assert_eq!(rt.state.taps, 0);
+}
+
+#[test]
+fn a_long_press_is_heard_at_the_lift_when_no_frame_came_in_between() {
+    let mut rt = hosted(30.0);
+    let r = rect(&rt, "words3");
+    let (x, y) = (r[0] + 4.0, r[1] + r[3] / 2.0);
+    rt.touch(1, TouchPhase::Started, x, y, 0.0);
+    rt.frame(1.0 / 60.0);
+    pass(&mut rt, 0.7);
+    rt.touch(1, TouchPhase::Moved, x, y, 0.35);
+    rt.touch(1, TouchPhase::Ended, x, y, 0.7);
+    rt.frame(1.0 / 60.0);
+    assert_eq!(rt.selected_text().as_deref(), Some("line3"), "held 0.7 s, though no frame was drawn while it was");
+    assert_eq!(rt.state.taps, 0);
+}
+
+#[test]
+fn a_drag_over_text_that_cannot_scroll_selects_nothing() {
+    // The first rig: a line of selectable text in a row, nothing that scrolls.
+    let mut rt = rig();
+    let r = line(&rt);
+    let y = r[1] + r[3] / 2.0;
+    rt.touch(1, TouchPhase::Started, r[0] + 4.0, y, 0.0);
+    rt.frame(0.016);
+    for i in 1..=5 {
+        rt.touch(1, TouchPhase::Moved, r[0] + 4.0 + 20.0 * i as f32, y, 0.02 * i as f64);
+        rt.frame(0.016);
+    }
+    // Past the slop it rests a second, as a slow drag does: still no long press.
+    hold(&mut rt, 1.0);
+    assert_eq!(rt.selected_text().filter(|t| !t.is_empty()), None, "nothing scrolls here, and the slop still ends the long press");
+    rt.touch(1, TouchPhase::Ended, r[0] + 104.0, y, 1.2);
+    rt.frame(0.016);
+    assert_eq!(rt.selected_text().filter(|t| !t.is_empty()), None, "a pointer's drag selects; a finger's does not");
+    assert!(rt.selection_handles().is_none());
+}

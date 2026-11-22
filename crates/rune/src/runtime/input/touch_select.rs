@@ -41,12 +41,14 @@ impl<S: 'static> Runtime<S> {
         self.schedule_wakes_from(now, [std::time::Duration::from_secs_f64(after)]);
     }
 
-    /// A frame at or after the long press's time, the finger still within the slop: on
+    /// A frame, or the finger's next event, at or after the long press's time (on the host's
+    /// clock, so a host that drew no frame in between still hears of it), the finger still
+    /// within the slop: on
     /// selectable text (away from its links) the press is let go unclicked, the viewport it held
     /// is left where it is, and the word under the finger is selected.
     pub(in crate::runtime) fn fire_long_press(&mut self) {
         let Some(due) = self.touch.long_due else { return };
-        if self.clock + 1e-6 < due { return; }
+        if self.now_clock() + 1e-6 < due { return; }
         self.touch.long_due = None;
         let Some(f) = self.touch.finger.as_ref().filter(|f| f.mode == Mode::Pending) else { return };
         let ((x, y), scroll) = (f.origin, f.scroll);
