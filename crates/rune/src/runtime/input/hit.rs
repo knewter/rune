@@ -2,6 +2,26 @@
 //! registration.
 use super::*;
 
+thread_local! {
+    static MIN_HIT: std::cell::Cell<f32> = const { std::cell::Cell::new(0.0) };
+}
+
+/// The least side, in points, of the box a press lands in for every element on this thread that
+/// takes a press or is a text field and sets no [`El::min_hit`](crate::El::min_hit) of its own:
+/// 48 where the window is touched (Material's minimum target), 0 (the default) with a pointer.
+/// Nothing is drawn or laid out differently; see [`El::min_hit`](crate::El::min_hit) for how a
+/// grown box yields to what is under the finger.
+pub fn set_min_hit(side: f32) {
+    MIN_HIT.with(|cell| cell.set(side.max(0.0)));
+}
+
+/// Edges (x0 y0 x1 y1) grown evenly about their centre until each side is at least `side`
+/// (`El::min_hit`); unchanged where they already are, or `side` is 0.
+pub(crate) fn grown(r: [f32; 4], side: f32) -> [f32; 4] {
+    let (dx, dy) = (((side - (r[2] - r[0])) / 2.0).max(0.0), ((side - (r[3] - r[1])) / 2.0).max(0.0));
+    [r[0] - dx, r[1] - dy, r[2] + dx, r[3] + dy]
+}
+
 impl<S: 'static> Runtime<S> {
     /// Node `i`'s edges as drawn this frame (points, x0 y0 x1 y1), or its layout box before
     /// it draws.
@@ -142,17 +162,44 @@ impl<S: 'static> Runtime<S> {
         inputs.next().is_none().then_some(first)
     }
 
+    /// The least side of the box node `i` is reached in: its own `El::min_hit`, else the thread's
+    /// ([`set_min_hit`]) where it takes a press or is a text field.
+    pub(crate) fn min_hit_of(&self, i: usize) -> f32 {
+        let n = &self.nodes[i];
+        if n.min_hit > 0.0 { return n.min_hit; }
+        let side = MIN_HIT.with(std::cell::Cell::get);
+        if side > 0.0 && (n.handlers.get().is_some_and(|h| h.on_press.is_some()) || n.input.is_some() || n.role == "textbox") { side } else { 0.0 }
+    }
+
+    /// Whether (x, y) is in the box node `id` is reached in: where it is drawn, or its grown box.
+    pub(super) fn reached(&self, id: NodeId, x: f32, y: f32) -> bool {
+        self.hits.iter().chain(&self.grown_hits).any(|&(hit, r)| hit == id && self.hit_contains(hit, r, x, y))
+    }
+
     /// The topmost element under (x, y) that takes primary input, selectable text included.
+    /// Where a control's grown box (`El::min_hit`) holds the point it is that control, unless
+    /// the point is on something else that takes input and does not contain the control:
+    /// what is under the finger wins, as Compose's minimum touch target yields.
     pub(super) fn top_target(&self, x: f32, y: f32) -> Option<usize> {
-        self.hits.iter().rev().find_map(|&(id, r)| {
-            if !self.hit_contains(id, r, x, y) { return None; }
-            let i = *self.node_index.get(&id)?;
+        let takes = |i: usize| {
             let n = &self.nodes[i];
             // A secondary-only child must not obscure primary input or background blur.
-            (!self.subtree_exiting(i) && self.allowed(i) && (n.has_primary_handler() || n.input.is_some() || n.role == "textbox"
+            !self.subtree_exiting(i) && self.allowed(i) && (n.has_primary_handler() || n.input.is_some() || n.role == "textbox"
                 || (n.role == "button" && n.vis.hit) || n.window_drag || n.window_resize.is_some() || n.focus.enabled || n.handlers.modal.is_some()
-                || self.is_selectable(i))).then_some(i)
-        })
+                || self.is_selectable(i))
+        };
+        let direct = self.hits.iter().rev().find_map(|&(id, r)| {
+            if !self.hit_contains(id, r, x, y) { return None; }
+            let i = *self.node_index.get(&id)?;
+            takes(i).then_some(i)
+        });
+        if self.grown_hits.is_empty() { return direct; }
+        let near = self.grown_hits.iter().rev().find_map(|&(id, r)| {
+            if !self.hit_contains(id, r, x, y) { return None; }
+            let i = *self.node_index.get(&id)?;
+            (takes(i) && direct.is_none_or(|d| d != i && std::iter::successors(self.nodes[i].parent, |&p| self.nodes[p].parent).any(|p| p == d))).then_some(i)
+        });
+        near.or(direct)
     }
 
     /// The element a press, hover or drag at (x, y) goes to. Selectable text passes them to the
@@ -217,6 +264,13 @@ impl<S: 'static> Runtime<S> {
             ];
             let rect = if n.parent.is_some() { cr } else { rect_pt };
             if !self.push_link_hits(i, rect_pt, rect) { self.hits.push((self.nodes[i].id, rect)); }
+            // A control drawn under its least reach is also reached in the grown box around it.
+            let side = self.min_hit_of(i);
+            if side > 0.0 && (rect_pt[2] - rect_pt[0] < side || rect_pt[3] - rect_pt[1] < side) {
+                let g = grown(rect_pt, side);
+                let g = if self.nodes[i].parent.is_some() { [g[0].max(c[0] / s), g[1].max(c[1] / s), g[2].min(c[2] / s), g[3].min(c[3] / s)] } else { g };
+                if g[2] > g[0] && g[3] > g[1] { self.grown_hits.push((self.nodes[i].id, g)); }
+            }
             let n = &self.nodes[i];
             if n.vis.hit && effective_opacity > 0.0 && rect[2] > rect[0] && rect[3] > rect[1] {
                 self.overlay_hits.push(self.hit_screen_rect(n.id, rect));

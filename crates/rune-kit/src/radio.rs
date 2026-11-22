@@ -108,6 +108,8 @@ impl RadioItem {
             .items_start()
             .child(el().key("stack").size(16.0, 20.0).child(control).a11y_hidden())
             .child(words.a11y_hidden());
+        // Under a finger the row is a finger tall, its mark and words centred in it.
+        let root = if k.touch_target > 0.0 { root.min_h(k.touch_target).center_y() } else { root };
         self.acts.apply(root.focusable(!disabled).focus_selected(self.checked).disabled(disabled), !disabled)
     }
 }
@@ -159,7 +161,8 @@ impl RadioGroup {
                 .description(d.clone())
                 .child(text(d.clone()).key("description").font(k.ty.small.lh(13.2)).color(c.text_faint).a11y_hidden());
         }
-        let mut items = col().key("items").gap(12.0);
+        // Rows a finger tall stand edge to edge: their height is the space between them.
+        let mut items = col().key("items").gap(if k.touch_target > 0.0 { 0.0 } else { 12.0 });
         let n = self.items.len();
         for (i, mut item) in self.items.into_iter().enumerate() {
             if self.disabled {

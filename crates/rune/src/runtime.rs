@@ -342,6 +342,7 @@ use paint_helpers::*;
 mod paint_content;
 #[path = "runtime/input/hit.rs"]
 mod hit;
+pub use hit::set_min_hit;
 #[path = "runtime/paint/build.rs"]
 mod build;
 #[path = "runtime/input/keys.rs"]
@@ -462,6 +463,8 @@ pub struct Runtime<S: 'static> {
     /// elements skip their fill and cut their shadows out of their interior.
     pub(crate) native_materials: bool,
     hits: Vec<(NodeId, [f32; 4])>,
+    /// The grown boxes of controls drawn under their `El::min_hit`, in paint order.
+    grown_hits: Vec<(NodeId, [f32; 4])>,
     overlay_hits: Vec<[f32; 4]>,
     glyph_scratch: Vec<GlyphQuad>,
     deco_scratch: Vec<PaintedDeco>,
@@ -884,6 +887,7 @@ impl<S: 'static> Runtime<S> {
             materials: Vec::new(),
             native_materials: false,
             hits: Vec::new(),
+            grown_hits: Vec::new(),
             overlay_hits: Vec::new(),
             glyph_scratch: Vec::new(),
             deco_scratch: Vec::new(),

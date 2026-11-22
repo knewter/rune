@@ -40,7 +40,7 @@ impl<S: 'static> Runtime<S> {
         // unscrolled layout rect, kept only for elements that were never drawn.
         let mut hits = self.hits.iter().filter(|(hit, _)| *hit == id).peekable();
         self.capture_inside = !self.press_cancelled && if self.native_overlay || hits.peek().is_some() {
-            hits.any(|&(id, r)| self.hit_contains(id, r, x, y))
+            hits.any(|&(id, r)| self.hit_contains(id, r, x, y)) || self.reached(id, x, y)
         } else { contains(r, x, y) };
         if has_drag && drag_move {
             let (dx, dy) = (x - self.press_at.0, y - self.press_at.1);

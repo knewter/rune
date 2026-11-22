@@ -275,6 +275,7 @@ pub use rune_motion::Travel;
 pub use rune_motion::Vec2;
 pub use rune_motion::Velocity;
 pub use runtime::Cx;
+pub use runtime::set_min_hit;
 pub use runtime::ElementInfo;
 pub use runtime::Env;
 pub use runtime::FocusedField;

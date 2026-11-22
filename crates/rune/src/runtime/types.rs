@@ -47,6 +47,8 @@ pub(crate) struct NodeCold {
     pub(super) help: Option<String>,
     /// `El::help_when_truncated`.
     pub(super) help_cut: bool,
+    /// `El::min_hit`.
+    pub(super) min_hit: f32,
     #[cfg(debug_assertions)]
     pub(super) scroll_source: Option<&'static std::panic::Location<'static>>,
 }
@@ -77,6 +79,7 @@ impl crate::cold::Empty for NodeCold {
         material: None,
         help: None,
         help_cut: false,
+        min_hit: 0.0,
         #[cfg(debug_assertions)]
         scroll_source: None,
     };

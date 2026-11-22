@@ -1,12 +1,17 @@
 //! Menu, context menu and their items (`@opencode/ui` navigation/menu, components/context-menu).
 //! Compact (default) and standard appearances.
+//!
+//! Under a finger ([`Kit::touch_target`]) every row is at least that tall and a description
+//! wraps instead of being cut, with or without a shortcut beside it. Where the app says its
+//! menus are sheets ([`crate::sheet::present_menus`]: a touched, narrow window) an open menu
+//! is a bottom sheet of the same rows, [`crate::sheet::ROW`] tall, rather than a popover.
 
 use std::rc::Rc;
 
 use rune::{El, Icon, PointerPress, TextStyle, Tx, col, el, icon, row, text};
 
 use crate::overlay::{Placement, fit_scroll_bar, menu_anchor, scrim};
-use crate::{Acts, Kit, State, shadows};
+use crate::{Acts, Kit, Sheet, State, shadows};
 
 /// A menu at a secondary-press position. Store the point from `El::on_secondary_press`
 /// in app state; clear it in `on_close` and item callbacks. Uses Menu's flipping anchor.
@@ -120,8 +125,10 @@ impl MenuItem {
         self
     }
 
-    fn build(self, k: &Kit, standard: bool, key: String, layer: &mut Vec<El>) -> El {
+    fn build(self, k: &Kit, standard: bool, reach: f32, key: String, layer: &mut Vec<El>) -> El {
         let c = &k.c;
+        // Under a finger a row is `reach` tall at least and says its whole description.
+        let touched = reach > 0.0;
         let disabled = self.state == State::Disabled;
         let highlighted = self.state == State::Hover || self.sub.as_ref().is_some_and(|s| s.1);
         let hover = if standard { c.surface_raised_hover } else { c.hover };
@@ -146,13 +153,15 @@ impl MenuItem {
                 c.icon_base
             }));
         }
-        let label = text(self.label.clone()).key("label").font(font).color(ink).truncate();
+        let label = text(self.label.clone()).key("label").font(font).color(ink);
+        let label = if touched { label.wrap() } else { label.truncate() };
         content = match &self.description {
             Some(d) => {
                 let (font, ink) = if standard { (k.ty.text_xsmall, c.text_weak) } else { (k.ty.small, c.text_faint) };
+                let description = text(d.clone()).key("description").font(font).color(ink);
                 content.child(
-                    col().key("text").grow(1.0).shrink().gap(2.0).child(label).child(
-                        text(d.clone()).key("description").font(font).color(ink).truncate(),
+                    col().key("text").grow(1.0).shrink().min_w(0.0).gap(2.0).child(label).child(
+                        if touched { description.wrap() } else { description.truncate() },
                     ),
                 )
             }
@@ -180,6 +189,8 @@ impl MenuItem {
             e = e.expanded(*open);
         }
         e = match (standard, self.description.is_some()) {
+            (true, _) if touched => e.min_h(reach).px(12.0).py(6.0),
+            (false, _) if touched => e.min_h(reach).py(8.0).pl(16.0).pr(12.0),
             (true, _) => e.px(8.0).py(4.0),
             (false, false) => e.h(28.0).pl(12.0).pr(6.0),
             (false, true) => e.min_h(28.0).py(6.0).pl(12.0).pr(6.0),
@@ -224,7 +235,7 @@ impl MenuItem {
             if open {
                 let sub = Menu { key: format!("{key}-sub"), entries, standard, min_width: 160.0, ..Menu::new("") };
                 let mut deeper = Vec::new();
-                let surface = sub.surface(k, &mut deeper);
+                let surface = sub.surface(k, k.touch_target, &mut deeper);
                 layer.push(menu_anchor(k, surface, &key, Placement::RightStart, 0.0));
                 layer.extend(deeper);
             }
@@ -251,6 +262,8 @@ pub struct Menu {
     /// A context menu: its trigger is the area it opens over, not a button that opens it.
     context: bool,
     dismiss: Option<(El, Modal)>,
+    /// The same close request, for the sheet a menu is under a finger in a narrow window.
+    sheet: Option<Box<dyn FnOnce(Sheet) -> Sheet>>,
 }
 
 /// Makes an open surface modal: it takes focus, Escape and outside presses dismiss it, and
@@ -286,6 +299,7 @@ impl Menu {
             at: None,
             context: false,
             dismiss: None,
+            sheet: None,
         }
     }
     pub fn trigger(mut self, t: El) -> Self {
@@ -333,23 +347,34 @@ impl Menu {
     }
     /// Presses outside and Escape close the menu. While open it holds keyboard focus.
     pub fn on_close<S: 'static>(mut self, f: impl Fn(&mut S) + 'static) -> Self {
-        self.dismiss = Some(dismissal(format!("{}-scrim", self.key), f));
+        let f = Rc::new(f);
+        let sheet = f.clone();
+        self.dismiss = Some(dismissal(format!("{}-scrim", self.key), move |s: &mut S| f(s)));
+        self.sheet = Some(Box::new(move |s: Sheet| s.on_close(move |state: &mut S| sheet(state))));
         self
     }
 
-    fn surface(self, k: &Kit, layer: &mut Vec<El>) -> El {
+    fn surface(self, k: &Kit, reach: f32, layer: &mut Vec<El>) -> El {
         let c = &k.c;
         let standard = self.standard;
+        let key = self.key.clone();
         let frame = col().key(format!("{}-menu", self.key)).role("menu").focus_group().min_w(self.min_width).items_stretch();
         let frame = if standard {
             shadows(k, frame.radius(k.radius.md).fill(c.surface_raised).border(1.0, k.alpha(c.std_border, 0.5)), &k.elevation.md)
         } else {
             shadows(k, frame.radius(6.0).fill(c.layer_01), &k.elevation.floating)
         };
+        frame.child(fit_scroll_bar(k, &key, self.rows(k, reach, layer)))
+    }
+
+    /// The menu's rows, each at least `reach` tall where that is not 0.
+    fn rows(self, k: &Kit, reach: f32, layer: &mut Vec<El>) -> El {
+        let c = &k.c;
+        let standard = self.standard;
         let mut list = col().key("rows").items_stretch().padding(if standard { 4.0 } else { 2.0 });
         for (i, entry) in self.entries.into_iter().enumerate() {
             list = list.child(match entry {
-                MenuEntry::Item(item) => item.build(k, standard, format!("{}-item{i}", self.key), layer),
+                MenuEntry::Item(item) => item.build(k, standard, reach, format!("{}-item{i}", self.key), layer),
                 MenuEntry::Separator => {
                     let (m, color) = if standard { (4.0, c.border_weak) } else { (2.0, c.border_muted) };
                     el().key(format!("sep{i}")).h(1.0).mt(m).mb(m).ml(-m).mr(-m).fill(color).a11y_hidden()
@@ -364,7 +389,7 @@ impl Menu {
                 }
             });
         }
-        frame.child(fit_scroll_bar(k, &self.key, list))
+        list
     }
 
     pub fn build(mut self, k: &Kit, layer: &mut Vec<El>) -> El {
@@ -374,6 +399,22 @@ impl Menu {
         let pointer = self.context || self.at.is_some();
         let trigger = row().key(anchor_key.clone()).children(self.trigger.take().map(|t| if pointer { t } else { t.expanded(open) }));
         if !self.open {
+            return trigger;
+        }
+        // A touched, narrow window: the same rows in a bottom sheet, inside the safe area, where
+        // a popover would hang off its trigger. A menu nothing can close stays a popover.
+        if let Some(insets) = crate::sheet::menus()
+            && let Some(close) = self.sheet.take()
+        {
+            let key = self.key.clone();
+            let mut subs = Vec::new();
+            let rows = self.rows(k, crate::sheet::ROW.max(k.touch_target), &mut subs).px(6.0);
+            let mut sheet = close(Sheet::new(key).role("menu").insets(insets).open(true).child(rows));
+            if !pointer {
+                sheet = sheet.focus_return(anchor_key);
+            }
+            sheet.build(k, layer);
+            layer.extend(subs);
             return trigger;
         }
         let modal = mount_dismiss(self.dismiss.take(), layer);
@@ -387,7 +428,7 @@ impl Menu {
         };
         // Submenus anchor to items inside this surface, so they mount after it.
         let mut subs = Vec::new();
-        let mut surface = self.surface(k, &mut subs).focus_return(anchor_key);
+        let mut surface = self.surface(k, k.touch_target, &mut subs).focus_return(anchor_key);
         if let Some(modal) = modal {
             surface = modal(surface);
         }

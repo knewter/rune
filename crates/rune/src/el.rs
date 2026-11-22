@@ -504,6 +504,8 @@ pub struct El {
     pub(crate) help: Option<String>,
     /// `El::help_when_truncated`: the tooltip shows only while the text is cut short.
     pub(crate) help_cut: bool,
+    /// `El::min_hit`: the least side, in points, of the box a press lands in; 0 when unset.
+    pub(crate) min_hit: f32,
     pub(crate) material: Option<crate::SystemMaterial>,
     /// `El::aspect_fit`'s width over height; 0 when unset.
     pub(crate) aspect_fit: f32,
@@ -570,6 +572,7 @@ fn base(dir: FlexDirection) -> El {
         time_scale: 1.0,
         help: None,
         help_cut: false,
+        min_hit: 0.0,
         material: None,
         aspect_fit: 0.0,
         selection_group: false,

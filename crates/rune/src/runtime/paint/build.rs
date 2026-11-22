@@ -21,6 +21,7 @@ impl<S: 'static> Runtime<S> {
         self.surfaces.clear();
         self.materials.clear();
         self.hits.clear();
+        self.grown_hits.clear();
         self.clear_help_hits();
         self.clear_drop_hits();
         self.loops_active = false;

@@ -246,6 +246,15 @@ impl El {
         self.style.set_min_width(length(0.0));
         self
     }
+    /// [`El::shrink`] with a weight (CSS `flex-shrink`): where siblings in a row do not fit, each
+    /// gives up room in proportion to its weight times its size, so the one with the larger
+    /// weight is cut first. A chip's secondary words given 1000 beside a name given 1 are gone
+    /// before the name loses a letter.
+    pub fn shrink_by(mut self, weight: f32) -> Self {
+        self.style.set_flex_shrink(weight.max(0.0));
+        self.style.set_min_width(length(0.0));
+        self
+    }
     /// Lay children out in `n` equal columns, each as wide as the widest child needs (CSS
     /// `grid-template-columns: repeat(n, 1fr)`), or sharing the width the element is given.
     /// Children fill the cells in order unless placed with `grid_cell`.
@@ -309,6 +318,18 @@ impl El {
     /// and a focused secure field keeps the input method off.
     pub fn ime_cursor(mut self) -> Self {
         self.ime_cursor = true;
+        self
+    }
+    /// The least side, in points, of the box a press, a hover or a reader's touch lands in: where
+    /// this element is drawn smaller, the box grows evenly about its centre (still inside its
+    /// ancestors' clips) while what is drawn and laid out stays its own size. A point on
+    /// something else that takes input stays that thing's, unless it contains this element:
+    /// the grown box only claims what is not under the finger already, as Compose's minimum
+    /// touch target does, so rows stacked edge to edge keep their own presses. The
+    /// accessibility tree reports the grown box. Zero (the default) is the drawn box, or the
+    /// thread's [`set_min_hit`](crate::set_min_hit) for a control that takes a press.
+    pub fn min_hit(mut self, side: f32) -> Self {
+        self.min_hit = side.max(0.0);
         self
     }
     /// Mark the drawn, ancestor-clipped rectangle as native overlay input. Does not add a handler.

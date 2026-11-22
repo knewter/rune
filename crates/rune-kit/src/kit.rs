@@ -230,8 +230,10 @@ pub struct Kit {
     pub invalid_text: bool,
     /// The smallest a control is drawn, in points, on each side: where a window is touched
     /// rather than pointed at, Material's 48 lets a finger reach a button, an icon button, a
-    /// switch, a checkbox or a disclosure's trigger. Zero (the default) leaves every control
-    /// at its own size, as on the desktop.
+    /// switch, a checkbox, a disclosure's trigger, a menu's row or a radio's. Zero (the
+    /// default) leaves every control at its own size, as on the desktop. A control an app
+    /// draws compact on purpose (a chip) keeps its size and is reached in a box this big
+    /// instead: [`Kit::finger`], or `rune::set_min_hit` for every pressable at once.
     pub touch_target: f32,
 }
 
@@ -243,6 +245,12 @@ impl Kit {
         } else {
             control
         }
+    }
+
+    /// `control` drawn its own size and reached in a box at least [`Kit::touch_target`] on each
+    /// side (`El::min_hit`): a compact chip a finger still finds.
+    pub fn finger(&self, control: El) -> El {
+        if self.touch_target > 0.0 { control.min_hit(self.touch_target) } else { control }
     }
 
     /// Gives `e` the kit's hover and press look: `c.hover` under the pointer, and `c.pressed`

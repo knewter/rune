@@ -466,3 +466,60 @@ fn hover_change_spans_descendants_and_holds_through_a_press() {
     rt.frame(0.0);
     assert_eq!(rt.state.0, [true, false, true, false]);
 }
+
+#[test]
+fn a_min_hit_grows_the_box_a_press_lands_in_and_leaves_what_is_drawn_alone() {
+    fn view(side: &(f32, u32), _: &mut Cx<(f32, u32)>) -> El {
+        el().size(200.0, 200.0).child(
+            el().key("chip").size(90.0, 28.0).pin(Some(50.0), Some(60.0), None, None).min_hit(side.0)
+                .on_press(|s: &mut (f32, u32)| s.1 += 1),
+        )
+    }
+    let mut rt = Runtime::new((48.0, 0), view, (200.0, 200.0), Env { system_dark: true, scale: 1.0 });
+    rt.frame(0.0);
+    let drawn = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("chip")).unwrap().rect;
+    assert_eq!(drawn, [50.0, 60.0, 90.0, 28.0], "the chip is drawn its own size");
+    assert_eq!(rt.hit_rect("chip"), Some([50.0, 50.0, 90.0, 48.0]), "taller by ten points each way, no wider");
+    // Eight points under the drawn chip is still the chip, and a release there still presses it.
+    rt.pointer_down(60.0, 95.0);
+    rt.pointer_up(60.0, 95.0);
+    rt.frame(0.0);
+    assert_eq!(rt.state.1, 1);
+    rt.pointer_down(60.0, 99.0);
+    rt.pointer_up(60.0, 99.0);
+    rt.frame(0.0);
+    assert_eq!(rt.state.1, 1, "past the grown box is not");
+    // Without one, as on the desktop, the box is the drawn one.
+    rt.update(|s, _| s.0 = 0.0);
+    rt.frame(0.0);
+    assert_eq!(rt.hit_rect("chip"), Some([50.0, 60.0, 90.0, 28.0]));
+    rt.pointer_down(60.0, 95.0);
+    rt.pointer_up(60.0, 95.0);
+    rt.frame(0.0);
+    assert_eq!(rt.state.1, 1);
+}
+
+#[test]
+fn a_grown_box_yields_to_what_is_under_the_finger_and_claims_what_holds_it() {
+    // Two 28-point rows edge to edge inside a pressable card, each reached in 48 points by the
+    // thread's default: a press on a row is that row's, never the neighbour whose grown box
+    // overlaps it, and a press in the card's padding beside a row is the row's, not the card's.
+    fn view(_: &Vec<&'static str>, _: &mut Cx<Vec<&'static str>>) -> El {
+        let line = |name: &'static str| el().key(name).size(100.0, 28.0).on_press(move |s: &mut Vec<&'static str>| s.push(name));
+        el().size(200.0, 200.0).child(
+            crate::col().key("card").padding(20.0).on_press(|s: &mut Vec<&'static str>| s.push("card"))
+                .child(line("first")).child(line("second")),
+        )
+    }
+    crate::set_min_hit(48.0);
+    let mut rt = Runtime::new(Vec::new(), view, (200.0, 200.0), Env { system_dark: true, scale: 1.0 });
+    rt.frame(0.0);
+    let mut press = |x: f32, y: f32| { rt.pointer_down(x, y); rt.pointer_up(x, y); rt.frame(0.0); };
+    press(50.0, 45.0); // the first row's last points, inside the second's grown box
+    press(50.0, 50.0); // the second row's first points, inside the first's grown box
+    press(50.0, 14.0); // the card's padding above the first row
+    press(50.0, 84.0); // the card's padding under the second
+    press(130.0, 48.0); // the card's padding beside them: rows 100 points wide grow no wider
+    crate::set_min_hit(0.0);
+    assert_eq!(rt.state, ["first", "second", "first", "second", "card"]);
+}

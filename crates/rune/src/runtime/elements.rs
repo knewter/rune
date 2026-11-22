@@ -448,6 +448,16 @@ impl<S: 'static> Runtime<S> {
         })
     }
 
+    /// The box a press on the element keyed `key` lands in as of the last frame, in window points
+    /// (x, y, width, height): its drawn box inside its ancestors' clips, grown to its
+    /// [`El::min_hit`](crate::El::min_hit). `None` where it takes no input or is not drawn. A
+    /// driver or a test reads it; what is drawn above it may still take the press first.
+    pub fn hit_rect(&self, key: &str) -> Option<[f32; 4]> {
+        let i = self.nodes.iter().position(|n| crate::flight::selects(key, &n.path, n.key.as_deref()))?;
+        let id = self.nodes[i].id;
+        self.grown_hits.iter().chain(&self.hits).find(|(hit, _)| *hit == id).map(|&(_, r)| [r[0], r[1], r[2] - r[0], r[3] - r[1]])
+    }
+
     /// Whether window point (`x`, `y`), in points, is inside the drawn, clipped and turned box
     /// of the element keyed `key`, whatever is drawn above it and whether or not it has handlers.
     /// False when there is no such element, it is exiting or fully transparent. Same geometry

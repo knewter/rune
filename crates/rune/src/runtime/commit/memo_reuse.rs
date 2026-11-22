@@ -426,6 +426,7 @@ pub(super) fn same_root_el(el: &El, built: &crate::memo::Built) -> bool {
         time_scale,
         help,
         help_cut,
+        min_hit,
         material,
         aspect_fit,
         selection_group,
@@ -481,6 +482,7 @@ pub(super) fn same_root_el(el: &El, built: &crate::memo::Built) -> bool {
         && el.time_scale == *time_scale
         && el.help == *help
         && el.help_cut == *help_cut
+        && el.min_hit == *min_hit
         && el.material == *material
         && el.aspect_fit == *aspect_fit
         && el.selection_group == *selection_group

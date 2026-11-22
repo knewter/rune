@@ -206,7 +206,10 @@ impl<S: 'static> Runtime<S> {
                 node.set_scroll_x_max(st.x.max);
             }
         }
-        node.set_bounds(rect(self.drawn[i], shift));
+        // A control drawn under its `min_hit` reports the box a finger and a reader's touch reach.
+        let d = self.drawn[i];
+        let g = hit::grown([d[0], d[1], d[0] + d[2], d[1] + d[3]], self.min_hit_of(i));
+        node.set_bounds(rect([g[0], g[1], g[2] - g[0], g[3] - g[1]], shift));
         // What a pointer or keyboard user can do to it, routed to the same handlers.
         if actionable {
             if handlers.is_some_and(|h| h.on_press.is_some()) || input.is_some() { node.add_action(Ak::Click); }

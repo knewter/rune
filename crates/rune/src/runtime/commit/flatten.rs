@@ -301,7 +301,8 @@ fn node_cold_needed(c: &NodeCold) -> bool {
         || c.aspect_fit.is_some()
         || c.material.is_some()
         || c.help.is_some()
-        || c.help_cut;
+        || c.help_cut
+        || c.min_hit != 0.0;
     #[cfg(debug_assertions)]
     let base = base || c.scroll_source.is_some();
     base
@@ -419,6 +420,7 @@ fn flatten_owned(
         time_scale,
         help,
         help_cut,
+        min_hit,
         material,
         aspect_fit,
         selection_group,
@@ -485,6 +487,7 @@ fn flatten_owned(
         material,
         help,
         help_cut,
+        min_hit,
         #[cfg(debug_assertions)]
         scroll_source,
     });
@@ -665,7 +668,8 @@ fn flatten_ref(
         || aspect_fit.is_some()
         || el.material.is_some()
         || el.help.is_some()
-        || el.help_cut;
+        || el.help_cut
+        || el.min_hit != 0.0;
     #[cfg(debug_assertions)]
     let cold_any = cold_any || el.scroll_source.is_some();
     let cold = if cold_any {
@@ -694,6 +698,7 @@ fn flatten_ref(
             material: el.material,
             help: el.help.clone(),
             help_cut: el.help_cut,
+            min_hit: el.min_hit,
             #[cfg(debug_assertions)]
             scroll_source: el.scroll_source,
         })
