@@ -134,6 +134,7 @@ impl Kit {
                 disclosure: tok::motion::DEFAULT,
             },
             blend_over: None,
+            caret: None,
             ring: None,
             touch_target: 0.0,
             invalid_text: false,

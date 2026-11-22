@@ -309,7 +309,7 @@ impl TextInput {
             .color(ink)
             .rich_style(kit_rich_style(k))
             .placeholder(self.placeholder.clone(), hint)
-            .caret(ink, k.selection());
+            .caret(if red { ink } else { k.caret_or(ink) }, k.selection());
         let mut field = name_field(field, self.label.as_deref(), &self.placeholder, None, disabled).invalid(self.invalid);
         if let Some(key) = self.active.clone() {
             field = field.active_descendant(key);
@@ -493,7 +493,7 @@ impl TextArea {
             .color(ink)
             .rich_style(kit_rich_style(k))
             .placeholder(self.placeholder.clone(), hint)
-            .caret(ink, k.selection());
+            .caret(if red { ink } else { k.caret_or(ink) }, k.selection());
         let field = name_field(field, self.label.as_deref(), &self.placeholder, None, disabled);
         let field = self.edits.apply(field, disabled);
         let line = style.line_px();
@@ -617,7 +617,7 @@ impl TextField {
             .color(c.text_strong)
             .rich_style(kit_rich_style(k))
             .placeholder(self.placeholder.clone(), c.text_weak)
-            .caret(c.text_strong, k.selection());
+            .caret(k.caret_or(c.text_strong), k.selection());
         let field = if self.multiline { field } else { field.single_line() };
         // The error describes the editor; the label above names it.
         let field = name_field(field, Some(self.label.as_str()), &self.placeholder, self.error.as_deref(), self.state == State::Disabled);

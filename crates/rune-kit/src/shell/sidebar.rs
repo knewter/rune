@@ -586,7 +586,7 @@ impl SidebarRow {
                     .grow(1.0)
                     .shrink()
                     .color(c.text_base)
-                    .caret(c.text_base, k.selection()),
+                    .caret(k.caret_or(c.text_base), k.selection()),
             ),
             None => text(self.label).key("label").font(font).color(ink).truncate().grow(1.0).shrink().a11y_hidden(),
         };

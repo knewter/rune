@@ -225,6 +225,9 @@ pub struct Kit {
     /// painted, so they follow token overrides made after the kit was built
     /// ([`Kit::from_palette`] sets `c.border_base`).
     pub ring: Option<fn(&Palette) -> Color>,
+    /// The text caret of the kit's fields, where a theme colours it apart from the text (an
+    /// accent caret, as Material's `primary`). None draws it in the field's ink.
+    pub caret: Option<Color>,
     /// Invalid inputs also paint their text, placeholder and caret in `c.danger.fg`
     /// (`@opencode/ui`'s look). Otherwise only the outline turns `danger`.
     pub invalid_text: bool,
@@ -277,6 +280,11 @@ impl Kit {
     pub fn alpha(&self, c: Color, a: f32) -> Color {
         let ca = c.alpha(a);
         self.blend_over.map_or(ca, |bg| rune::theme::for_blend(ca, bg))
+    }
+
+    /// The caret of a field whose text is `ink`: [`Kit::caret`] where the theme sets one.
+    pub fn caret_or(&self, ink: Color) -> Color {
+        self.caret.unwrap_or(ink)
     }
 
     /// The text selection highlight of the kit's fields. Pass it to `El::selection_color` on

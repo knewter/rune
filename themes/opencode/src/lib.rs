@@ -238,6 +238,7 @@ fn build(dark: bool) -> Kit {
             disclosure: rune::Spring::new(0.3, 0.0),
         },
         blend_over: Some(blend),
+        caret: None,
         ring: None,
         invalid_text: true,
         touch_target: 0.0,
