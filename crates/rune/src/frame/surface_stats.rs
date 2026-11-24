@@ -123,8 +123,9 @@ impl SurfaceStats {
     }
 }
 
-/// A surface with more failed acquisitions or unpaced redraws a second than this is spinning:
-/// above any display's refresh rate.
+/// A surface with more failed acquisitions, unpaced redraws or timer wakes a second than this
+/// is spinning: above any display's refresh rate. Wakes count because a loop turned by an overdue
+/// deadline spins without drawing anything (a frame the compositor withheld, `AskedFrame`).
 const SPIN_RATE: u64 = 400;
 /// Seconds in a row over `SPIN_RATE` before the meter says so.
 const SPIN_SECONDS: u32 = 2;
@@ -217,7 +218,7 @@ impl SurfaceMeter {
             stats.published = Some(now);
             // A long quiet window averages low, which also ends a hot streak.
             let rates = stats.per_second;
-            self.hot = if rates.failed() > SPIN_RATE || rates.unpaced > SPIN_RATE { self.hot + 1 } else { 0 };
+            self.hot = if rates.failed() > SPIN_RATE || rates.unpaced > SPIN_RATE || rates.wakes > SPIN_RATE { self.hot + 1 } else { 0 };
             stats.summary()
         };
         self.base = self.totals;
@@ -243,6 +244,24 @@ pub(crate) fn read(shared: &Mutex<SurfaceStats>) -> SurfaceStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A loop turned by an overdue deadline, drawing nothing, is a spin the meter names.
+    #[test]
+    fn a_loop_that_wakes_without_drawing_is_a_spin() {
+        let (mut spinning, start) = meter();
+        let mut warned = Vec::new();
+        for second in 1..=3u64 {
+            for _ in 0..5000 { spinning.turn(true, false); }
+            warned.extend(spinning.tick(start + Duration::from_secs(second)));
+        }
+        assert_eq!(warned.len(), 1, "said once, after two hot seconds: {warned:?}");
+        assert!(warned[0].contains("5000 loop turns/s (5000 wakes)"), "{}", warned[0]);
+        let (mut quiet, start) = meter();
+        for second in 1..=3u64 {
+            for _ in 0..60 { quiet.turn(true, true); }
+            assert!(quiet.tick(start + Duration::from_secs(second)).is_none(), "a 60 Hz timer is not a spin");
+        }
+    }
 
     fn meter() -> (SurfaceMeter, Instant) {
         let meter = SurfaceMeter::new("main", Arc::default());

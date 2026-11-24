@@ -107,6 +107,15 @@ impl<S: 'static> AnyHost for Host<S> {
                 self.clipboard.flush(&mut self.rt);
                 self.shell(event_loop);
                 if changed && launcher { self.refresh_hidden(); }
+            // The frame a timer asked for is still on its way. One the compositor withholds
+            // (`AskedFrame`) runs the timer covered meanwhile, and is asked for again.
+            } else if let Some(withheld) = self.win.as_mut().filter(|w| w.asked.outstanding()).map(|w| w.asked.withheld(Instant::now())) {
+                if withheld {
+                    covered_step(&mut self.rt);
+                    self.clipboard.flush(&mut self.rt);
+                    self.shell(event_loop);
+                    if let Some(w) = &self.win { w.window.request_redraw(); }
+                }
             // A redraw while the window backs off would draw nothing and leave the timer due.
             } else if self.win.as_ref().is_some_and(|w| (launcher || (w.visible && !w.occluded)) && !w.minimized()
                 && !w.backing_off(Instant::now())) {
@@ -125,6 +134,7 @@ impl<S: 'static> AnyHost for Host<S> {
                 };
                 if frame && let Some(w) = &mut self.win {
                     w.quiet = true;
+                    w.asked.ask(Instant::now());
                     w.window.request_redraw();
                 }
             } else {
@@ -139,8 +149,9 @@ impl<S: 'static> AnyHost for Host<S> {
         // The next display tick consumes due timers too. Leaving an overdue timer
         // armed while its redraw waits for that tick would spin the event loop. Without a
         // running link, a timer due sooner than a frame waits a frame (`timer_deadline`).
-        let runtime = timer_deadline(&self.rt).filter(|_| !self.win.as_ref().is_some_and(Win::paced));
         let win = self.win.as_ref();
+        let runtime = timer_deadline(&self.rt).filter(|_| !win.is_some_and(Win::paced))
+            .map(|due| win.map_or(due, |w| w.asked.deadline(due)));
         runtime.into_iter()
             .chain(win.and_then(|w| w.first_frame.deadline.map(|(retry, _)| retry)))
             .chain(win.and_then(|w| w.first_frame.ready_deadline()))

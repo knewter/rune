@@ -534,3 +534,44 @@ fn a_new_gpus_device_equals_the_old_one_but_its_key_differs() {
     let (old, new) = (crate::render::Renderer::new(&old, format), crate::render::Renderer::new(&new, format));
     assert_ne!(old.device_key(), new.device_key());
 }
+
+/// A shown window whose compositor withholds the frame a due timer asked for (Wayland sends no
+/// frame callback to a surface on another workspace): the timer stays due, so taken alone its
+/// deadline sets every wake at once and the loop spins. Held back by the outstanding frame, the
+/// loop wakes a frame interval after the ask, then backs off to `OCCLUDED_MAX`, and the frame
+/// arriving gives the timer the wake again.
+#[test]
+fn a_timer_whose_frame_the_compositor_withholds_does_not_spin_the_loop() {
+    let mut rt = Runtime::new(0u32, |_, _| crate::el(), (10.0, 10.0), crate::Env::default());
+    let start = Instant::now() - Duration::from_secs(60);
+    rt.wall_start = Some(start);
+    rt.update(|_, tx| tx.wake_after(Duration::from_millis(500)));
+    rt.frame(0.0);
+    let due = timer_deadline(&rt).expect("armed");
+    // Asked at the timer, then withheld for ten minutes of wakes. Nothing draws, so nothing
+    // spends the timer.
+    let mut asked = AskedFrame::default();
+    asked.ask(due);
+    let mut now = due;
+    let mut turns = 0u32;
+    while now < due + Duration::from_secs(600) {
+        assert!(timer_deadline(&rt).is_some_and(|t| t <= now), "the timer stays due while nothing draws");
+        let wake = asked.deadline(timer_deadline(&rt).unwrap());
+        assert!(wake > now, "turn {turns}: the next wake is ahead of now, not due at once");
+        now = wake;
+        turns += 1;
+        assert!(asked.withheld(now), "a wake that comes is the frame's wait running out");
+    }
+    assert!(turns <= 310, "ten minutes withheld cost {turns} turns, about one every {OCCLUDED_MAX:?}");
+    let wake = asked.deadline(timer_deadline(&rt).unwrap());
+    assert!(wake - now <= OCCLUDED_MAX, "the backoff stops at OCCLUDED_MAX");
+    // A frame that comes before its wait runs out isn't withheld.
+    let mut prompt = AskedFrame::default();
+    prompt.ask(now);
+    assert!(!prompt.withheld(now + Duration::from_millis(8)));
+    assert_eq!(prompt.deadline(now), now + TIMER_FRAME, "the first wait is a frame interval");
+    // The frame comes: the due timer wakes the loop at once again, as before.
+    asked.drawn();
+    assert!(!asked.outstanding());
+    assert_eq!(asked.deadline(timer_deadline(&rt).unwrap()), timer_deadline(&rt).unwrap());
+}

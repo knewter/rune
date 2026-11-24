@@ -55,6 +55,42 @@ impl HiddenPace {
     pub(crate) fn reset(&mut self) { *self = HiddenPace::default(); }
 }
 
+/// A frame a due timer asked a shown window for, which hasn't come. A compositor may hold it
+/// back for as long as it likes: Wayland's winit delivers `RedrawRequested` only once the last
+/// frame callback arrives, and a compositor sends none to a surface nobody sees (another
+/// workspace, minimized, wholly covered), and says nothing about why. The timer that asked
+/// stays due all that while, so it may not set the next wake: `deadline` holds it back until
+/// `wait` after the ask. A wait that runs out found the frame withheld; the host then runs
+/// the timer covered (`covered_step`), so its poll and inbox keep moving, and the wait
+/// doubles to `OCCLUDED_MAX`. Without it, an idle window on another workspace turned the
+/// event loop as fast as it could for as long as it stayed there (76% of a core, 21 hours).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct AskedFrame { at: Option<Instant>, wait: Duration }
+
+impl AskedFrame {
+    /// A due timer asked for a frame at `now`. An ask still outstanding keeps its time.
+    pub(crate) fn ask(&mut self, now: Instant) {
+        if self.at.is_none() { *self = AskedFrame { at: Some(now), wait: TIMER_FRAME }; }
+    }
+    /// The frame came (or the window drew for any other reason): timers set the wake again.
+    pub(crate) fn drawn(&mut self) { *self = AskedFrame::default(); }
+    /// Whether a frame asked for hasn't come yet.
+    pub(crate) fn outstanding(&self) -> bool { self.at.is_some() }
+    /// The earliest a due timer may wake the loop while the frame it asked for is outstanding.
+    pub(crate) fn deadline(&self, due: Instant) -> Instant {
+        self.at.map_or(due, |at| due.max(at + self.wait))
+    }
+    /// At a due timer: whether the frame asked for has been withheld its whole wait. If so, the
+    /// next wait starts now and is twice as long, from `OCCLUDED_RETRY` up to `OCCLUDED_MAX`.
+    pub(crate) fn withheld(&mut self, now: Instant) -> bool {
+        let Some(at) = self.at else { return false };
+        if now < at + self.wait { return false; }
+        self.at = Some(now);
+        self.wait = (self.wait * 2).clamp(OCCLUDED_RETRY, OCCLUDED_MAX);
+        true
+    }
+}
+
 /// Whether a timer asks for the frame after one just presented. Only a surface whose display
 /// link paces it (`next_frame` is its next tick) takes a timer due by then as a frame request;
 /// anywhere else the timer waits in `timer_deadline`, so it never turns the loop by itself.

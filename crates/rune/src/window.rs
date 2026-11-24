@@ -60,7 +60,7 @@ mod lifecycle;
 mod mac;
 mod pacing;
 pub(crate) use pacing::{
-    HiddenPace, Missed, OCCLUDED_MAX, OCCLUDED_RETRY, TIMEOUT_RETRY, TIMER_FRAME, acquire, acquire_checked,
+    AskedFrame, HiddenPace, Missed, OCCLUDED_MAX, OCCLUDED_RETRY, TIMEOUT_RETRY, TIMER_FRAME, acquire, acquire_checked,
     timer_deadline, timer_wants_frame,
 };
 #[cfg(test)]
