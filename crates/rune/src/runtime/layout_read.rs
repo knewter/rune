@@ -137,9 +137,10 @@ pub(crate) fn note_read_at(reads: &mut LayoutReads, key: &str, same: Option<Same
 pub(crate) struct LayoutRects {
     rects: HashMap<String, Option<[f32; 4]>>,
     pub(crate) selection: Rc<[[f32; 4]]>,
-    /// Where the selection's first text shows (x0, y0, x1, y1) and its path, as of the commit
-    /// the boxes were last given from (`Cx::selection_clip`, `Cx::selection_path`).
-    pub(crate) selection_in: Option<([f32; 4], Rc<str>)>,
+    /// Where the selection's first text shows (x0, y0, x1, y1), its path, and whether it is a
+    /// text field's, as of the commit the boxes were last given from (`Cx::selection_clip`,
+    /// `Cx::selection_path`, `Cx::selection_in_field`).
+    pub(crate) selection_in: Option<([f32; 4], Rc<str>, bool)>,
 }
 
 impl std::ops::Deref for LayoutRects {

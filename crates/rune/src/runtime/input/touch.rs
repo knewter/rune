@@ -77,6 +77,9 @@ struct Finger {
     horizontal: bool,
     /// The element whose swipe the finger is, once it is one.
     swipe: Option<String>,
+    /// Selecting, how far the finger is from the point it moves (a handle is held below the
+    /// line it moves along).
+    grab: (f32, f32),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -134,14 +137,14 @@ impl<S: 'static> Runtime<S> {
             return;
         }
         if self.touch.finger.is_some() { return; }
-        if self.take_handle(x, y) {
-            self.touch.finger = Some(Finger { id, origin: (x, y), at_point: (x, y), last: 0.0, at: time, velocity: 0.0, mode: Mode::Select, scroll: None, horizontal: false, swipe: None });
+        if let Some(grab) = self.take_handle(x, y) {
+            self.touch.finger = Some(Finger { id, origin: (x, y), at_point: (x, y), last: 0.0, at: time, velocity: 0.0, mode: Mode::Select, scroll: None, horizontal: false, swipe: None, grab });
             return;
         }
         let scroll = self.touch_scroll_start(x, y);
         self.pointer_move(x, y);
         self.pointer_down(x, y);
-        self.touch.finger = Some(Finger { id, origin: (x, y), at_point: (x, y), last: 0.0, at: time, velocity: 0.0, mode: Mode::Pending, scroll, horizontal: false, swipe: None });
+        self.touch.finger = Some(Finger { id, origin: (x, y), at_point: (x, y), last: 0.0, at: time, velocity: 0.0, mode: Mode::Pending, scroll, horizontal: false, swipe: None, grab: (0.0, 0.0) });
         self.arm_long_press();
     }
 
@@ -193,7 +196,7 @@ impl<S: 'static> Runtime<S> {
         match (f.mode, f.scroll) {
             (Mode::Pan, Some(scroll)) => self.touch_scroll_move(scroll, along),
             (Mode::Drag, _) => self.pointer_move(x, y),
-            (Mode::Select, _) => self.selection_drag(x, y),
+            (Mode::Select, _) => self.touch_select_move(x, y),
             (Mode::Swipe, _) => {
                 let (path, origin, velocity) = (f.swipe.clone(), f.origin, f.velocity);
                 if let Some(path) = path { self.swipe_event(&path, Phase::Move, x, y, origin, velocity, false); }
@@ -230,8 +233,7 @@ impl<S: 'static> Runtime<S> {
         }
         if f.mode == Mode::Select {
             // The selection stays, cancelled or not; nothing was pressed to release.
-            self.text_sel.dragging = false;
-            self.pointer_leave();
+            self.touch_select_up();
             return;
         }
         let pan = f.mode == Mode::Pan;

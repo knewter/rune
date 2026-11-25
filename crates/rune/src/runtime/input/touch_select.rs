@@ -52,6 +52,7 @@ impl<S: 'static> Runtime<S> {
         self.touch.long_due = None;
         let Some(f) = self.touch.finger.as_ref().filter(|f| f.mode == Mode::Pending) else { return };
         let ((x, y), scroll) = (f.origin, f.scroll);
+        if let Some(j) = self.field_at(x, y) { return self.long_press_field(j, x, y, scroll); }
         let Some(i) = self.selectable_at(x, y) else { return self.long_press_menu(x, y, scroll) };
         if self.link_at(i, x, y).is_some() { return; }
         self.touch_scroll_end(scroll, 0.0);
@@ -61,6 +62,42 @@ impl<S: 'static> Runtime<S> {
         self.text_sel.last = Some((self.nodes[i].path.clone(), self.now_clock(), x, y, 1));
         self.selection_down(Some(i), x, y);
         if let Some(f) = self.touch.finger.as_mut() { (f.mode, f.scroll) = (Mode::Select, None); }
+    }
+
+    /// The text field under (x, y), if it is the topmost thing there that takes input.
+    fn field_at(&self, x: f32, y: f32) -> Option<usize> {
+        self.top_target(x, y).filter(|&i| self.nodes[i].input.is_some() && !self.nodes[i].inert)
+    }
+
+    /// A long press in a text field: the word under the finger is selected, as a double click
+    /// selects it, and moving the finger then extends the selection by words. The press it began
+    /// with (which focused the field and placed its caret) is that click's first half.
+    fn long_press_field(&mut self, j: usize, x: f32, y: f32, scroll: Option<NodeId>) {
+        self.touch_scroll_end(scroll, 0.0);
+        let now = self.now_clock();
+        self.input_click.press_again(&self.nodes[j].path, now, x, y);
+        self.input_down(j, x, y);
+        if let Some(f) = self.touch.finger.as_mut() { (f.mode, f.scroll) = (Mode::Select, None); }
+    }
+
+    /// A finger selecting moved to (x, y): the end it holds follows the point it holds it by,
+    /// in a field or in selectable text.
+    pub(super) fn touch_select_move(&mut self, x: f32, y: f32) {
+        let Some(f) = self.touch.finger.as_ref() else { return };
+        let (x, y) = (x - f.grab.0, y - f.grab.1);
+        if self.input_click.dragging_path().is_some() { self.input_drag(x, y, true) } else { self.selection_drag(x, y) }
+    }
+
+    /// A finger selecting lifted: the selection stays and nothing is released or clicked. A
+    /// field's press ends without its click count, so a tap next places a caret.
+    pub(super) fn touch_select_up(&mut self) {
+        self.text_sel.dragging = false;
+        if self.input_click.dragging_path().is_some() || self.input_click.captured {
+            self.input_click.end_press();
+            self.input_click.clear_last();
+            self.capture = None;
+        }
+        self.pointer_leave();
     }
 
     /// A long press off selectable text: the context menu of what is under the finger
@@ -80,9 +117,21 @@ impl<S: 'static> Runtime<S> {
     /// The part of the window (x0, y0, x1, y1) the selection's texts show in: the clips around
     /// its first text (the scroll viewport it is read in). None with no selection.
     pub fn selection_clip(&self) -> Option<[f32; 4]> {
-        let (i, ..) = *self.selection_ranges().first()?;
         if self.inh_scratch.len() != self.nodes.len() { return None; }
+        let Some(&(i, ..)) = self.selection_ranges().first() else {
+            // A field's range shows inside the field, within the clips around it.
+            let i = self.selected_field(&self.nodes)?;
+            let [x0, y0, x1, y1] = self.screen_clip_of_parent(Some(i)).map(|v| v / self.env.scale);
+            let t = self.nodes[i].target;
+            let inset = self.nodes[i].inset;
+            return Some([x0.max(t[0] + inset[0]), y0.max(t[1]), x1.min(t[2] - inset[2]), y1.min(t[3])]);
+        };
         Some(self.screen_clip_of_parent(Some(i)).map(|v| v / self.env.scale))
+    }
+
+    /// Whether the selection is the focused text field's range (`Cx::selection_in_field`).
+    pub fn selection_in_field(&self) -> bool {
+        self.selection_ranges().is_empty() && self.selected_field(&self.nodes).is_some()
     }
 
     /// Where the selection's handles hang from, in window points: under the start of its first
@@ -95,24 +144,40 @@ impl<S: 'static> Runtime<S> {
 
     /// A finger came down at (x, y): on a handle it takes that end of the selection, which then
     /// follows the finger while the other stays. True when it did, and nothing is pressed.
-    pub(super) fn take_handle(&mut self, x: f32, y: f32) -> bool {
-        let Some(handles) = self.selection_handles() else { return false };
+    pub(super) fn take_handle(&mut self, x: f32, y: f32) -> Option<(f32, f32)> {
+        let handles = self.selection_handles()?;
         // A handle scrolled out of its viewport is not drawn, and takes no finger: a touch on
         // what is drawn there (a composer under the transcript) is that control's.
         let clip = self.selection_clip();
         let shown = |(hx, hy): (f32, f32)| clip.is_none_or(|c| hx >= c[0] - 0.5 && hx <= c[2] + 0.5 && hy >= c[1] - 0.5 && hy <= c[3] + 0.5);
         let reach = |h: (f32, f32)| if shown(h) { (x - h.0).hypot(y - (h.1 + HANDLE_REACH / 2.0)) } else { f32::INFINITY };
         let (start, end) = (reach(handles[0]), reach(handles[1]));
-        if start.min(end) > HANDLE_REACH { return false; }
-        // The end that moves is the focus; the focus is at the start when it was made backwards.
+        if start.min(end) > HANDLE_REACH { return None; }
         let moving_start = start < end;
+        // The finger holds the handle below the line it hangs from: the end it moves is where
+        // the middle of that line would be, wherever the finger is (Android's handles keep the
+        // finger the same way), so it never drops to the line under the finger.
+        let boxes = self.selection_boxes();
+        let line = if moving_start { boxes.first() } else { boxes.last() }.map_or(0.0, |b| b[3]);
+        let (hx, hy) = handles[usize::from(!moving_start)];
+        let grab = (x - hx, y - (hy - line / 2.0));
+        if let Some(j) = self.selected_field(&self.nodes) {
+            // A field's end moves through its own edits: the other end is held where it is.
+            let edit = self.nodes[j].input.as_ref().map(|inp| inp.edit.range())?;
+            let fixed = if moving_start { edit.1 } else { edit.0 };
+            let path = self.nodes[j].path.clone();
+            self.press_at = (x, y);
+            self.input_click.hold_end(path, fixed);
+            return Some(grab);
+        }
+        // The end that moves is the focus; the focus is at the start when it was made backwards.
         if moving_start != self.selection_backward() { self.swap_selection_ends(); }
         let sel = &mut self.text_sel;
         sel.unit = crate::runtime::selectable::Unit::Char;
         sel.origin = (sel.anchor, sel.anchor);
         sel.dragging = true;
         self.seal_between();
-        true
+        Some(grab)
     }
 
     /// The anchor becomes the focus and the focus the anchor, in whichever texts they are.
@@ -130,3 +195,7 @@ impl<S: 'static> Runtime<S> {
 #[cfg(test)]
 #[path = "touch_select_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "touch_field_tests.rs"]
+mod field_tests;

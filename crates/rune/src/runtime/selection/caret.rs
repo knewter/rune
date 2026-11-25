@@ -52,6 +52,33 @@ impl<S: 'static> Runtime<S> {
         Some([x + bb.x0 as f32 / s, y + n.inset[1] + bb.y0 as f32 / s, 1.5, h])
     }
 
+    /// The line boxes `[x, y, w, h]` of node `i`'s selected range in window points, placed as
+    /// [`Self::caret_rect`] places its caret, if it is a focused text field with a range
+    /// selected and no composition: what a touch selection's handles hang from in a field.
+    pub(super) fn field_range_boxes(&self, nodes: &[Node], i: usize) -> Vec<[f32; 4]> {
+        let n = &nodes[i];
+        let (Some(inp), Some(spec), Some(layout)) = (n.input.as_ref(), n.text.as_ref(), n.text_layout.as_ref()) else { return Vec::new() };
+        let e = &inp.edit;
+        let (a, b) = e.range();
+        if !e.focused || a == b || e.preedit.is_some() { return Vec::new(); }
+        let (da, db) = e.display_selection_range(a, b);
+        let s = self.env.scale;
+        let t = sticky::anchored_target(nodes, &self.scrolls, i, self.viewport);
+        let y = t[1] + self.stack_row_dy(nodes, i) + n.inset[1];
+        let tw = layout.full_width().ceil() / s;
+        let (x0, x1) = (t[0] + n.inset[0], t[2] - n.inset[2]);
+        let mut x = text_x(spec, x0, x1, tw);
+        if inp.single_line {
+            let prev = self.input_scroll.get(&n.path).copied().unwrap_or(0.0);
+            x -= single_line_offset(prev, inp, &spec.content, layout, s, (x1 - x0) * s) / s;
+        }
+        let len = spec.content.len();
+        crate::text::range_boxes(layout, da.min(len), db.min(len), true)
+            .into_iter()
+            .map(|(bb, _)| [x + bb.x0 as f32 / s, y + bb.y0 as f32 / s, (bb.x1 - bb.x0) as f32 / s, (bb.y1 - bb.y0) as f32 / s])
+            .collect()
+    }
+
     /// After an edit, scrolls the focused field's nearest scroll viewport on each axis just far
     /// enough to show the caret line, as a browser does for a textarea, leaving the viewport's
     /// `El::scroll_margin` like CSS `scroll-padding`.

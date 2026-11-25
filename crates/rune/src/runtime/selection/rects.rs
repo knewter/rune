@@ -11,7 +11,8 @@ pub(crate) const SELECTION: &str = "\u{1}selection";
 impl<S> Cx<S> {
     /// The line boxes of the text selection, `[x, y, w, h]` each in window points after
     /// scrolling, in reading order: one per line of each selected text, as its highlight draws
-    /// them. Empty (and allocating nothing) when nothing is selected or only a caret is placed.
+    /// them. With no [`El::selectable`](crate::El::selectable) text selected, they are the
+    /// focused text field's selected range ([`Self::selection_in_field`]). Empty (and allocating nothing) when nothing is selected or only a caret is placed.
     /// Boxes aren't clipped to their scroll viewport, so a view can tell when the selection has
     /// scrolled out of sight. Only mounted texts have boxes: the rows of a virtual list that
     /// scrolled away have none. Like [`Cx::layout`], boxes are layout points: an ancestor's
@@ -37,7 +38,7 @@ impl<S> Cx<S> {
     pub fn selection_clip(&self) -> Option<[f32; 4]> {
         layout_read::note_read(&mut self.layout_reads.borrow_mut(), SELECTION, None);
         crate::memo::read_selection(&self.layout.selection);
-        self.layout.selection_in.as_ref().map(|(clip, _)| *clip)
+        self.layout.selection_in.as_ref().map(|(clip, ..)| *clip)
     }
 
     /// The path of the selection's first text ([`ElementInfo::path`](crate::ElementInfo)):
@@ -45,7 +46,16 @@ impl<S> Cx<S> {
     pub fn selection_path(&self) -> Option<String> {
         layout_read::note_read(&mut self.layout_reads.borrow_mut(), SELECTION, None);
         crate::memo::read_selection(&self.layout.selection);
-        self.layout.selection_in.as_ref().map(|(_, path)| path.to_string())
+        self.layout.selection_in.as_ref().map(|(_, path, _)| path.to_string())
+    }
+
+    /// Whether the selection is a text field's range rather than [`El::selectable`](crate::El::selectable)
+    /// text's: its boxes are then the focused field's selected range, which a view offers to
+    /// cut and paste over as well as to copy. Read as [`Self::selection_clip`] is.
+    pub fn selection_in_field(&self) -> bool {
+        layout_read::note_read(&mut self.layout_reads.borrow_mut(), SELECTION, None);
+        crate::memo::read_selection(&self.layout.selection);
+        self.layout.selection_in.as_ref().is_some_and(|(.., field)| *field)
     }
 }
 
@@ -59,11 +69,24 @@ pub(crate) fn boxes_moved(a: &[[f32; 4]], b: &[[f32; 4]]) -> bool {
 }
 
 impl<S: 'static> Runtime<S> {
-    /// The selection's line boxes laid out in the last commit's nodes.
+    /// The selection's line boxes laid out in the last commit's nodes: selectable text's, or,
+    /// with none selected, the focused field's selected range.
     pub(in crate::runtime) fn selection_boxes(&self) -> Vec<[f32; 4]> {
         let mut out = Vec::new();
-        for (i, a, b) in self.selection_ranges() { self.text_boxes(&self.nodes, i, a, b, &mut out); }
+        let ranges = self.selection_ranges();
+        if ranges.is_empty() {
+            return self.selected_field(&self.nodes).map_or(out, |i| self.field_range_boxes(&self.nodes, i));
+        }
+        for (i, a, b) in ranges { self.text_boxes(&self.nodes, i, a, b, &mut out); }
         out
+    }
+
+    /// The focused text field in `nodes` with a range selected and nothing composing.
+    pub(in crate::runtime) fn selected_field(&self, nodes: &[Node]) -> Option<usize> {
+        nodes.iter().position(|n| n.input.as_ref().is_some_and(|inp| {
+            let (a, b) = inp.edit.range();
+            inp.edit.focused && a != b && inp.edit.preedit.is_none()
+        }))
     }
 
     /// The selection's ranges by the path of each selected text. A measure reads them before it
@@ -76,6 +99,9 @@ impl<S: 'static> Runtime<S> {
     /// The line boxes of `ranges` laid out in a measure's `nodes`, found there by path.
     pub(super) fn selection_boxes_in(&self, nodes: &[Node], ranges: &[SelectedRange]) -> Vec<[f32; 4]> {
         let mut out = Vec::new();
+        if ranges.is_empty() {
+            return self.selected_field(nodes).map_or(out, |i| self.field_range_boxes(nodes, i));
+        }
         for (path, a, b) in ranges {
             if let Some(j) = nodes.iter().position(|n| n.path == *path) { self.text_boxes(nodes, j, *a, *b, &mut out); }
         }
@@ -99,10 +125,14 @@ impl<S: 'static> Runtime<S> {
         }
     }
 
-    /// Where the selection's first text shows, and its path, in the last commit's nodes.
-    pub(in crate::runtime) fn selection_within(&self) -> Option<([f32; 4], Rc<str>)> {
-        let (i, ..) = *self.selection_ranges().first()?;
-        Some((self.selection_clip()?, self.nodes[i].path.as_str().into()))
+    /// Where the selection's first text shows, its path, and whether it is a field's, in the
+    /// last commit's nodes.
+    pub(in crate::runtime) fn selection_within(&self) -> Option<([f32; 4], Rc<str>, bool)> {
+        let (i, field) = match self.selection_ranges().first() {
+            Some(&(i, ..)) => (i, false),
+            None => (self.selected_field(&self.nodes)?, true),
+        };
+        Some((self.selection_clip()?, self.nodes[i].path.as_str().into(), field))
     }
 
     /// Once a frame: the selection moved since the view last read it (a drag, a click, code,

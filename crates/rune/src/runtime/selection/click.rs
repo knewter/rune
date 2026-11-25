@@ -67,6 +67,21 @@ impl InputClick {
         std::mem::take(&mut self.captured)
     }
 
+    /// The next press on `path` at (x, y) is the second of a double click: a finger's long press
+    /// in a field selects the word, as a double click does.
+    pub(super) fn press_again(&mut self, path: &str, now: f64, x: f32, y: f32) {
+        self.last = Some((path.to_owned(), now, x, y, 1));
+    }
+
+    /// A finger took one end of a field's selection (its handle): the other end stays at
+    /// `fixed` and drags move the taken end by characters.
+    pub(super) fn hold_end(&mut self, path: String, fixed: usize) {
+        self.unit = Unit::Char;
+        self.origin = (fixed, fixed);
+        self.last = None;
+        self.dragging = Some(path);
+    }
+
     pub(super) fn on_focus_change(&mut self, focused: Option<&str>) {
         if self.last.as_ref().is_some_and(|(p, ..)| Some(p.as_str()) != focused) {
             self.last = None;
