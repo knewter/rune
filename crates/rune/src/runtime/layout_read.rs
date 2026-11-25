@@ -402,8 +402,14 @@ impl<S: 'static> Runtime<S> {
         let now: Vec<_> = self.layout_seen.rects.keys().map(|k| self.layout_of(&self.nodes, index, k)).collect();
         for (seen, rect) in self.layout_seen.rects.values_mut().zip(now) { *seen = rect; }
         if self.layout_seen.rects.contains_key(SELECTION) {
-            self.layout_seen.rects.selection = self.selection_boxes().into();
-            self.layout_seen.rects.selection_in = self.selection_within();
+            let boxes = self.selection_boxes();
+            // A pass that can't know where the selection shows yet keeps what was known.
+            match self.selection_within() {
+                Some(w) => self.layout_seen.rects.selection_in = Some(w),
+                None if boxes.is_empty() => self.layout_seen.rects.selection_in = None,
+                None => {}
+            }
+            self.layout_seen.rects.selection = boxes.into();
         }
     }
 

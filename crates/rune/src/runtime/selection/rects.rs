@@ -139,6 +139,11 @@ impl<S: 'static> Runtime<S> {
     /// scrolling). That isn't layout feedback, so the view re-runs as for a state change.
     pub(super) fn selection_read_moved(&self) -> bool {
         let seen = &self.layout_seen.rects;
-        seen.contains_key(SELECTION) && boxes_moved(&seen.selection, &self.selection_boxes())
+        if !seen.contains_key(SELECTION) { return false; }
+        let boxes = self.selection_boxes();
+        // Where it shows and whose it is settle after the boxes do (`selection_within` is None
+        // until they have): their arrival is a move too.
+        boxes_moved(&seen.selection, &boxes)
+            || (!boxes.is_empty() && self.selection_within().is_some_and(|w| seen.selection_in.as_ref() != Some(&w)))
     }
 }
