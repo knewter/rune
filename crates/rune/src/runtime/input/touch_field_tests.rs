@@ -1,5 +1,5 @@
 use super::super::TouchPhase;
-use crate::{Cx, El, Env, Runtime, TextEdit, TextStyle, col, text_input};
+use crate::{Cx, El, Env, Runtime, TextEdit, TextStyle, col, el, text_input};
 
 struct Form {
     field: TextEdit,
@@ -8,11 +8,20 @@ struct Form {
 
 const WORDS: &str = "alpha brave charlie delta";
 
-fn view(s: &Form, _: &mut Cx<Form>) -> El {
+fn view(s: &Form, cx: &mut Cx<Form>) -> El {
     let style = TextStyle::new(14.0, 400.0).lh(20.0);
+    // What a view reads of the selection, shown as an element a test can find.
+    let in_field = cx.selection_in_field();
+    let clipped = cx.selection_clip().is_some();
     col().size(400.0, 300.0).padding(8.0).gap(8.0)
         .child(text_input(&s.field, style).single_line().key("field").size(300.0, 24.0).on_edit(|s: &mut Form| &mut s.field))
         .child(text_input(&s.lines, style).key("lines").size(300.0, 80.0).on_edit(|s: &mut Form| &mut s.lines))
+        .child(el().key(match (in_field, clipped) { (true, true) => "read-field", (false, true) => "read-text", _ => "read-none" }).size(1.0, 1.0))
+}
+
+/// What the view last read of the selection.
+fn read(rt: &Runtime<Form>) -> String {
+    rt.elements().into_iter().filter_map(|e| e.key).find(|k| k.starts_with("read-")).unwrap_or_default()
 }
 
 fn rig() -> Runtime<Form> {
@@ -96,7 +105,9 @@ fn a_field_selection_has_a_handle_at_each_end_and_a_view_reads_its_boxes() {
     assert_eq!(boxes.len(), 1, "one line box");
     let clip = rt.selection_clip().expect("the field's box is where its selection shows");
     assert!(clip[0] >= r[0] - 0.5 && clip[2] <= r[0] + r[2] + 0.5, "inside the field: {clip:?} {r:?}");
-    assert!(rt.selection_in_field(), "and the view is told it is a field's");
+    assert!(rt.selection_in_field(), "and the runtime knows it is a field's");
+    rt.frame(0.05);
+    assert_eq!(read(&rt), "read-field", "a view reads the field's selection, and where it shows");
 }
 
 #[test]

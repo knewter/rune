@@ -370,7 +370,13 @@ impl<S: 'static> Runtime<S> {
         let within = boxes.as_ref().and_then(|_| self.selection_within());
         let rects = &mut self.layout_seen.rects;
         let moved = reads.iter().zip(&now).position(|(r, rect)| rects.get(&r.key).is_none_or(|old| r.moved(*old, *rect)));
-        let changed = moved.is_some() || boxes.as_ref().is_some_and(|b| boxes_moved(&rects.selection, b));
+        // Where the selection shows and whose it is can come later than its boxes: they first
+        // appear in a pass whose clips aren't settled yet (`within` is None there although boxes
+        // show), so its arrival is a change of its own, and an unsettled pass keeps what was known.
+        let unsettled = within.is_none() && boxes.as_ref().is_some_and(|b| !b.is_empty());
+        let within = if unsettled { rects.selection_in.clone() } else { within };
+        let changed = moved.is_some()
+            || boxes.as_ref().is_some_and(|b| boxes_moved(&rects.selection, b) || within != rects.selection_in);
         // The once-a-frame check names the read for the scroll warning.
         #[cfg(debug_assertions)]
         if !nodes_given && let Some(k) = moved { self.watch.meter.read(&reads[k].key, reads[k].at); }
