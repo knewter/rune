@@ -212,6 +212,7 @@ impl<S: 'static> Host<S> {
             hidden_pace: HiddenPace::default(),
             cursor: crate::cursor::os::OsCursor::new(event_loop),
             alpha,
+            retained: Default::default(),
             quiet: false,
             asked: AskedFrame::default(),
             presented: None,

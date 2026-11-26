@@ -146,8 +146,9 @@ impl Renderer {
             }
             let Some(rows) = page.dirty.take() else { continue };
             Self::write_rows(&staging, &self.images[index].as_ref().unwrap().0, &page.data, rows);
+            self.damage.all_next();
         }
-        if changed { self.images_changed(); }
+        if changed { self.images_changed(); self.damage.all_next(); }
         self.refresh_layer_bindings(device);
     }
 
@@ -193,11 +194,15 @@ impl Renderer {
         viewport: (u32, u32),
     ) {
         if self.springs.is_some() { assert_eq!(instances.len(), self.spring_instances); }
+        self.damage.begin();
+        if self.springs.is_some() { self.damage.all(); }
         let staging = self.uploads.staging(device, queue);
         if staging.lost() != self.uploads.lost.0 {
             self.uploads.lost.0 = staging.lost();
             self.resend_uploads(atlas);
+            self.damage.all();
         }
+        if atlas.dirty.is_some() || atlas.pages.iter().any(|p| p.dirty.is_some()) { self.damage.all(); }
         if let Some(rows) = atlas.dirty.take() { Self::write_rows(&staging, &self.atlas, &atlas.data, rows); }
         let mut atlas_changed = self.atlas_pages.len() > atlas.pages.len();
         self.atlas_pages.truncate(atlas.pages.len());
@@ -212,7 +217,7 @@ impl Renderer {
                 Self::write_rows(&staging, &self.atlas_pages[index].0, &page.data, rows);
             }
         }
-        if atlas_changed { self.images_changed(); }
+        if atlas_changed { self.images_changed(); self.damage.all(); }
         if instances.len() > self.capacity {
             self.capacity = instances.len().next_power_of_two();
             self.instances = Self::instance_buffer(device, self.capacity);
@@ -221,10 +226,12 @@ impl Renderer {
         self.write_instances(&staging, instances);
         // Geometry uploads must preserve a presentation timestamp already latched this frame.
         if self.uploads.viewport.swap(pack(viewport), Ordering::Relaxed) != pack(viewport) {
+            self.damage.all();
             staging.write_buffer(&self.globals, 0, bytemuck::cast_slice(&[viewport.0 as f32, viewport.1 as f32]));
             #[cfg(test)] { self.uploads.globals_writes += 1; }
         }
         if self.uploads.srgb.replace(self.srgb_blend) != Some(self.srgb_blend) {
+            self.damage.all();
             let flags: [f32; 4] = [if self.srgb_blend { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0];
             staging.write_buffer(&self.globals, 16, bytemuck::cast_slice(&flags));
             #[cfg(test)] { self.uploads.globals_writes += 1; }
@@ -249,6 +256,9 @@ impl Renderer {
             }
         }
         self.prepare_backdrop_blur(device, queue, viewport);
+        if !self.effects.is_empty() || self.has_backdrop_blur() { self.damage.all(); }
+        let feet = self.layer_feet();
+        self.damage.settle(feet, viewport);
     }
 
     pub fn prepare_surfaces(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, draws: &[crate::native_surface::SurfaceDraw], viewport: (u32,u32)) {
@@ -336,8 +346,10 @@ impl Renderer {
     /// to batch again.
     fn write_instances(&mut self, staging: &Staging, instances: &[Instance]) {
         let held = &mut self.uploads.instances;
+        let damage = &mut self.damage;
         let shared = instances.len().min(held.len());
         let mut rebatch = instances.len() != held.len();
+        if rebatch { damage.all(); }
         held.resize(instances.len(), Instance::zeroed());
         let mut open: Option<std::ops::Range<usize>> = None;
         for start in (0..shared).step_by(BLOCK) {
@@ -348,28 +360,31 @@ impl Renderer {
                 (start + 1..end).find(differs).unwrap_or(start)
             };
             let last = (first..end).rfind(differs).map_or(end, |i| i + 1);
-            rebatch |= Self::join(&self.instances, held, staging, instances, &mut open, first..last);
+            rebatch |= Self::join(&self.instances, held, damage, staging, instances, &mut open, first..last);
         }
-        if instances.len() > shared { rebatch |= Self::join(&self.instances, held, staging, instances, &mut open, shared..instances.len()); }
-        if let Some(span) = open { rebatch |= Self::write_span(&self.instances, held, staging, instances, span); }
+        if instances.len() > shared { rebatch |= Self::join(&self.instances, held, damage, staging, instances, &mut open, shared..instances.len()); }
+        if let Some(span) = open { rebatch |= Self::write_span(&self.instances, held, damage, staging, instances, span); }
         self.uploads.batched &= !rebatch;
     }
 
     /// Adds `span` to the open span if it is less than a block past it, or writes the open span
     /// and opens `span`. True if it wrote a span whose `params` changed.
-    fn join(buffer: &wgpu::Buffer, held: &mut [Instance], staging: &Staging, instances: &[Instance],
+    fn join(buffer: &wgpu::Buffer, held: &mut [Instance], damage: &mut damage::Damage, staging: &Staging, instances: &[Instance],
         open: &mut Option<std::ops::Range<usize>>, span: std::ops::Range<usize>) -> bool {
         match open {
             Some(o) if span.start <= o.end + BLOCK => { o.end = span.end; false }
-            _ => open.replace(span).is_some_and(|o| Self::write_span(buffer, held, staging, instances, o)),
+            _ => open.replace(span).is_some_and(|o| Self::write_span(buffer, held, damage, staging, instances, o)),
         }
     }
 
     /// Writes `span`, and says whether any of its instances' `params`, which pick their batch,
     /// changed.
-    fn write_span(buffer: &wgpu::Buffer, held: &mut [Instance], staging: &Staging, instances: &[Instance], span: std::ops::Range<usize>) -> bool {
+    fn write_span(buffer: &wgpu::Buffer, held: &mut [Instance], damage: &mut damage::Damage, staging: &Staging, instances: &[Instance], span: std::ops::Range<usize>) -> bool {
         let params = |i: &Instance| bytemuck::cast::<[f32; 4], u128>(i.params);
         let rebatch = held[span.clone()].iter().zip(&instances[span.clone()]).any(|(h, i)| params(h) != params(i));
+        for at in span.clone() {
+            if !same(&held[at..=at], &instances[at..=at]) { damage.changed(at, &held[at], &instances[at]); }
+        }
         held[span.clone()].copy_from_slice(&instances[span.clone()]);
         let offset = (span.start * std::mem::size_of::<Instance>()) as u64;
         staging.write_buffer(buffer, offset, bytemuck::cast_slice(&instances[span]));

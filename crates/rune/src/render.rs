@@ -6,6 +6,7 @@ use crate::pixels::ImageAtlas;
 use crate::text::{ATLAS_SIZE, Atlas};
 
 mod backdrop_blur;
+mod damage;
 mod dxbc;
 mod first_use;
 pub mod halves;
@@ -15,6 +16,7 @@ mod layers;
 mod metallib;
 mod pass;
 use pass::{ActivePass, Backdrop};
+pub(crate) mod retained;
 pub(crate) mod surface_alpha;
 pub(crate) mod translucency;
 mod upload;
@@ -718,6 +720,8 @@ pub struct Renderer {
     /// Pipelines and pyramid for backdrop blur records, built on the first one.
     backdrop_blur: Option<backdrop_blur::BackdropBlur>,
     uploads: upload::Uploads,
+    /// What each prepared frame changed, for a window that keeps its last frame.
+    damage: damage::Damage,
     /// Unique to this renderer, so to the device it was made on (`Frame::device_key`).
     device_key: crate::compose::DeviceKey,
 }
@@ -806,6 +810,7 @@ impl Renderer {
             backdrops: Vec::new(),
             backdrop_blur: None,
             uploads: Default::default(),
+            damage: Default::default(),
             device_key: crate::compose::DeviceKey::next(),
         }
     }
@@ -1128,6 +1133,9 @@ impl Renderer {
 
     fn draw_load(&self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView, load: wgpu::LoadOp<wgpu::Color>, timestamps: Option<wgpu::RenderPassTimestampWrites<'_>>) {
         let timestamps = timestamps.or_else(|| self.surfaces.as_ref().and_then(|s| s.timestamp_writes()));
+        let size = view.texture().size();
+        let cleared = if matches!(load, wgpu::LoadOp::Clear(_)) { u64::from(size.width) * u64::from(size.height) } else { 0 };
+        self.damage.counts.set(damage::FrameCounts { cleared, ..Default::default() });
         self.encode_layers_timed(encoder, timestamps.as_ref(), &mut |_, _| {});
         let timestamps = timestamps.map(|mut t| {
             if self.layer_stats().extra_passes > 0 { t.beginning_of_pass_write_index = None; }

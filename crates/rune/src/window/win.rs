@@ -31,6 +31,8 @@ pub(super) struct Win {
     pub(super) hidden_pace: HiddenPace,
     pub(super) cursor: crate::cursor::os::OsCursor,
     pub(super) alpha: Option<crate::render::surface_alpha::AlphaSurface>,
+    /// The last frame, kept so a frame that changes a small part of it draws only that.
+    pub(super) retained: crate::render::retained::Retained,
     /// Only a due timer asked for the next frame, which may then draw nothing new.
     pub(super) quiet: bool,
     /// The frame a due timer asked for, while the compositor hasn't delivered it.

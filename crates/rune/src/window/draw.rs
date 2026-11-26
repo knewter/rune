@@ -273,7 +273,8 @@ impl<S: 'static> Host<S> {
             animating |= c.animating();
         } else {
             renderer.prepare(&gpu.device, &gpu.queue, &mut rt.text.atlas, &rt.instances, (l.config.width, l.config.height));
-            renderer.draw(&mut enc, target, rt.clear_color());
+            let (out, out_format) = l.alpha.as_ref().map_or((&frame.texture, target_format), |a| (a.texture(), a.format()));
+            renderer.draw_retained(&gpu.device, &mut enc, &mut l.retained, out, target, out_format, rt.clear_color());
         }
         if let Some(alpha) = &l.alpha { alpha.draw(&mut enc, &view); }
         renderer.submit(&gpu.queue, enc);

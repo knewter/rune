@@ -88,7 +88,8 @@ impl AlphaSurface {
             label: Some("premultiplied composition"),
             size: wgpu::Extent3d { width: size.0.max(1), height: size.1.max(1), depth_or_array_layers: 1 },
             mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2,
-            format, usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC, view_formats: &[],
+            format, usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::COPY_DST, view_formats: &[],
         });
         let view = texture.create_view(&Default::default());
         let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -97,6 +98,11 @@ impl AlphaSurface {
         });
         (texture, view, bind)
     }
+    /// The premultiplied composition the frame draws into, which a kept frame is copied to.
+    pub fn texture(&self) -> &wgpu::Texture { &self.texture }
+
+    pub fn format(&self) -> wgpu::TextureFormat { self.format }
+
     pub fn resize(&mut self, device: &wgpu::Device, size: (u32, u32)) {
         if (self.texture.width(), self.texture.height()) == (size.0.max(1), size.1.max(1)) { return; }
         (self.texture, self.view, self.bind) = Self::target(device, &self.layout, self.format, size);

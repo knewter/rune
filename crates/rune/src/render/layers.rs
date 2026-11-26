@@ -95,7 +95,7 @@ struct Layer {
 }
 
 /// The upright bounds of edges `r` turned `angle` radians clockwise about `p`.
-fn turned_bounds(r: [f32; 4], angle: f32, p: [f32; 2]) -> [f32; 4] {
+pub(super) fn turned_bounds(r: [f32; 4], angle: f32, p: [f32; 2]) -> [f32; 4] {
     let (sn, c) = angle.sin_cos();
     let mut out = [f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY];
     for (x, y) in [(r[0], r[1]), (r[2], r[1]), (r[0], r[3]), (r[2], r[3])] {
@@ -578,11 +578,22 @@ impl Renderer {
     }
 
     pub(super) fn encode_layers_timed(&self, encoder: &mut wgpu::CommandEncoder, timestamps: Option<&wgpu::RenderPassTimestampWrites<'_>>, hook: &mut EffectBackdropHook<'_>) {
+        self.encode_layers_within(encoder, timestamps, None, hook);
+    }
+
+    /// `encode_layers_timed` for a frame drawn only inside window edges `within`: a layer whose
+    /// composite can't reach them keeps last frame's target, which this frame doesn't show.
+    /// A cached layer always renders, so its cache never holds what it didn't draw.
+    pub(super) fn encode_layers_within(&self, encoder: &mut wgpu::CommandEncoder, timestamps: Option<&wgpu::RenderPassTimestampWrites<'_>>,
+        within: Option<[f32; 4]>, hook: &mut EffectBackdropHook<'_>) {
         self.flush_uploads(encoder);
         let mut first = true;
         for (index, l) in self.layers.plan.iter().enumerate().rev() {
             if !l.needs_render { continue; }
             let Some(target) = &self.layers.targets[index] else { continue };
+            if let Some(r) = within && l.cache.is_none() && !self.layer_reaches(index, r) { continue; }
+            let size = u64::from(target.texture.width()) * u64::from(target.texture.height());
+            self.damage.add(|c| { c.layer_passes += 1; c.cleared += size; });
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("isolated group"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -641,6 +652,34 @@ impl Renderer {
         }
         let include_end = range.end == self.count || self.layers.plan.iter().any(|l| l.end == range.end);
         self.draw_plain(pass, format, cursor..range.end, target, include_end, hook);
+    }
+
+    pub(super) fn layers_planned(&self) -> usize { self.layers.plan.len() }
+
+    /// A planned layer's instance span, its planned edges, and, when it draws into a target,
+    /// the window edges its composite covers: `base_vs` grows a scope's quad a pixel, then turns
+    /// it. Both a pixel wider again for rasterization.
+    pub(super) fn layer_reach(&self, index: usize) -> (u32, u32, [f32; 4], Option<[f32; 4]>) {
+        let l = &self.layers.plan[index];
+        let b = l.bounds;
+        let edges = [b[0] - 2.0, b[1] - 2.0, b[0] + b[2] + 2.0, b[1] + b[3] + 2.0];
+        let composite = self.layers.targets[index].as_ref().map(|_| match l.turn {
+            Some((angle, pivot)) => turned_bounds(edges, angle, pivot),
+            None => edges,
+        });
+        (l.begin, l.end, edges, composite)
+    }
+
+    /// Whether layer `index` can show inside window edges `r`: through the composite of the
+    /// outermost layer with a target around it (itself included), which draws into the window.
+    fn layer_reaches(&self, index: usize, r: [f32; 4]) -> bool {
+        let (mut at, mut outer) = (Some(index), index);
+        while let Some(i) = at {
+            if self.layers.targets[i].is_some() { outer = i; }
+            at = self.layers.plan[i].parent;
+        }
+        let Some(c) = self.layer_reach(outer).3 else { return true };
+        c[0] < r[2] && r[0] < c[2] && c[1] < r[3] && r[1] < c[3]
     }
 
     pub(super) fn validate_layer_range(&self, range: &Range<u32>) {

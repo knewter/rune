@@ -20,11 +20,13 @@ pub(super) struct ActivePass<'a, 'p> {
     scissor: Option<[u32; 4]>,
     /// The frame pass's timestamp writes: a re-opened pass writes the end index again.
     timestamps: Option<wgpu::RenderPassTimestampWrites<'a>>,
+    /// A rect `[x, y, width, height]` no scissor reaches outside (a kept frame's damaged area).
+    bound: Option<[u32; 4]>,
 }
 
 impl<'a, 'p> ActivePass<'a, 'p> {
     pub(super) fn borrowed(pass: &'a mut wgpu::RenderPass<'p>) -> Self {
-        ActivePass { inner: Some(PassInner::Borrowed(pass)), encoder: None, scissor: None, timestamps: None }
+        ActivePass { inner: Some(PassInner::Borrowed(pass)), encoder: None, scissor: None, timestamps: None, bound: None }
     }
 
     pub(super) fn owned(
@@ -32,11 +34,19 @@ impl<'a, 'p> ActivePass<'a, 'p> {
         encoder: &'a mut wgpu::CommandEncoder,
         view: &'a wgpu::TextureView,
     ) -> Self {
-        ActivePass { inner: Some(PassInner::Owned(pass)), encoder: Some((encoder, view)), scissor: None, timestamps: None }
+        ActivePass { inner: Some(PassInner::Owned(pass)), encoder: Some((encoder, view)), scissor: None, timestamps: None, bound: None }
     }
 
     pub(super) fn with_timestamps(mut self, timestamps: Option<wgpu::RenderPassTimestampWrites<'a>>) -> Self {
         self.timestamps = timestamps;
+        self
+    }
+
+    /// Keeps every scissor of the pass inside `rect` (`[x, y, width, height]`), and starts there.
+    pub(super) fn bounded(mut self, rect: [u32; 4]) -> Self {
+        self.bound = Some(rect);
+        let [x, y, w, h] = rect;
+        self.set_scissor_rect(x, y, w, h);
         self
     }
 
@@ -45,6 +55,12 @@ impl<'a, 'p> ActivePass<'a, 'p> {
         self.scissor = rect;
         let [x, y, w, h] = rect.unwrap_or([0, 0, size[0], size[1]]);
         self.set_scissor_rect(x, y, w, h);
+    }
+
+    /// The pass's `set_scissor_rect`, inside its bound.
+    pub(super) fn set_scissor_rect(&mut self, x: u32, y: u32, w: u32, h: u32) {
+        let [x, y, w, h] = within([x, y, w, h], self.bound);
+        std::ops::DerefMut::deref_mut(self).set_scissor_rect(x, y, w, h);
     }
 
     pub(super) fn scissor(&self) -> Option<[u32; 4]> { self.scissor }
@@ -171,10 +187,19 @@ impl<'a, 'p> ActivePass<'a, 'p> {
             multiview_mask: None,
         }).forget_lifetime();
         next.set_viewport(0.0, 0.0, size[0] as f32, size[1] as f32, 0.0, 1.0);
-        if let Some([x, y, w, h]) = self.scissor { next.set_scissor_rect(x, y, w, h); }
+        if let Some([x, y, w, h]) = self.scissor.or(self.bound).map(|r| within(r, self.bound)) { next.set_scissor_rect(x, y, w, h); }
         self.inner = Some(PassInner::Owned(next));
         Some(bd)
     }
+}
+
+/// `rect` (`[x, y, width, height]`) cut to `bound`; empty where they don't meet.
+fn within(rect: [u32; 4], bound: Option<[u32; 4]>) -> [u32; 4] {
+    let Some(b) = bound else { return rect };
+    let (x0, y0) = (rect[0].max(b[0]), rect[1].max(b[1]));
+    let (x1, y1) = ((rect[0] + rect[2]).min(b[0] + b[2]), (rect[1] + rect[3]).min(b[1] + b[3]));
+    if x1 <= x0 || y1 <= y0 { return [b[0], b[1], 0, 0]; }
+    [x0, y0, x1 - x0, y1 - y0]
 }
 
 impl<'p> std::ops::Deref for ActivePass<'_, 'p> {
