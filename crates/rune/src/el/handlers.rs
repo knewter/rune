@@ -59,6 +59,16 @@ impl El {
         self.handlers.on_swipe = Some(Rc::new(move |s, d, tx| f(downcast::<S>(s), d, tx)));
         self
     }
+    /// With [`El::on_swipe`]: `f` hears `true` the moment a finger lands in the element, before
+    /// the finger has moved far enough to be a swipe, so a settling slide stops under it. If the
+    /// finger then swipes, the swipe's `Up` is its lift; if it doesn't (a tap, a vertical pan, a
+    /// second finger), `f` hears `false` when it lifts. A finger on something inside that drags
+    /// itself ([`El::on_drag`]) is not heard. The innermost element with a swipe under the
+    /// finger hears it.
+    pub fn on_swipe_touch<S: 'static>(mut self, f: impl Fn(&mut S, bool, &mut Tx) + 'static) -> Self {
+        self.handlers.on_swipe_touch = Some(Rc::new(move |s, down, tx| f(downcast::<S>(s), down, tx)));
+        self
+    }
     /// [`El::on_drag`] for a component that doesn't read the app's state (a scroll bar that
     /// only scrolls through its `Tx`), so it works in any app.
     pub fn on_drag_any(mut self, f: impl Fn(&mut Drag, &mut Tx) + 'static) -> Self {

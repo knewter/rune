@@ -25,6 +25,9 @@ pub(crate) struct Handlers {
     pub on_drag: Option<DragFn>,
     /// `El::on_swipe`: a finger's horizontal swipe that nothing inside the element takes.
     pub on_swipe: Option<DragFn>,
+    /// `El::on_swipe_touch`: a finger landing in the swipe's element (`true`), and lifting
+    /// (`false`) when it never became the swipe.
+    pub on_swipe_touch: Option<WindowFocusFn>,
     pub drag_out: Option<DragOutFn>,
     pub drag_threshold: Option<f32>,
     pub on_drag_start: Option<PressFn>,
@@ -109,6 +112,7 @@ impl Empty for Handlers {
         gestures: None,
         on_drag: None,
         on_swipe: None,
+        on_swipe_touch: None,
         drag_out: None,
         drag_threshold: None,
         on_drag_start: None,

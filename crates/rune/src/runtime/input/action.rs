@@ -35,6 +35,8 @@ pub(super) enum Action {
     DragRepeat(String, Drag, crate::PointerButton),
     /// `El::on_swipe`: a finger's horizontal swipe.
     Swipe(String, Drag),
+    /// `El::on_swipe_touch`: a finger landed (`true`) or lifted without swiping.
+    SwipeTouch(String, bool),
     DragStart(String),
     DragEnd(String, crate::DragOutcome),
     /// A file drag from another app moved, left, or dropped (`drop_dispatch`).
@@ -123,6 +125,7 @@ pub(super) fn live_only_handler(action: &Action) -> Option<&'static str> {
         Action::SecondaryPress(..) => "on_secondary_press",
         Action::Drag(..) | Action::DragRepeat(..) => "on_drag",
         Action::Swipe(..) => "on_swipe",
+        Action::SwipeTouch(..) => "on_swipe_touch",
         Action::DragStart(_) => "on_drag_start",
         Action::DragEnd(..) => "on_drag_end",
         Action::Key { .. } => "on_key",
@@ -139,7 +142,7 @@ pub(super) fn live_only_handler(action: &Action) -> Option<&'static str> {
 pub(super) fn action_path(action: &Action) -> Option<&str> {
     match action {
         Action::PointerMove(path, _) | Action::DrawnLayout(path, ..) | Action::Layout(path, _) | Action::Hover(path) | Action::HoverChange(path, _) | Action::SelectionChange(path, _) | Action::Press(path, _) | Action::DoublePress(path)
-        | Action::Link(path, _) | Action::LinkSecondary(path, ..) | Action::SecondaryPress(path, _) | Action::Drag(path, ..) | Action::DragRepeat(path, ..) | Action::Swipe(path, _) | Action::DragStart(path)
+        | Action::Link(path, _) | Action::LinkSecondary(path, ..) | Action::SecondaryPress(path, _) | Action::Drag(path, ..) | Action::DragRepeat(path, ..) | Action::Swipe(path, _) | Action::SwipeTouch(path, _) | Action::DragStart(path)
         | Action::DragEnd(path, _) | Action::Visible(path, _) => Some(path),
         Action::Wheel(_, chain, _) | Action::Gesture(chain, _) => chain.first().map(String::as_str),
         _ => None,
@@ -439,6 +442,13 @@ impl<S: 'static> Runtime<S> {
                 if d.phase != Phase::Move {
                     log_event!(self, "swipe {:?} {path}", d.phase);
                 }
+                true
+            }
+            Action::SwipeTouch(path, down) => {
+                let Some(f) = self.node(&path).and_then(|n| n.handlers.on_swipe_touch.clone()) else { return false };
+                one.instant = true;
+                f(states!(self), down, &mut one);
+                log_event!(self, "swipe-touch {down} {path}");
                 true
             }
             Action::DragStart(path) => {

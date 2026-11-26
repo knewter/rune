@@ -431,6 +431,7 @@ impl<S: 'static> Runtime<S> {
         self.fire_hover_delays();
         self.fire_press_repeat();
         self.fire_long_press();
+        self.fire_press_due();
         if let Some(poll) = self.poll.filter(|_| !polled) {
             let mut one = self.transaction();
             // Scheduling does not imply a model change.

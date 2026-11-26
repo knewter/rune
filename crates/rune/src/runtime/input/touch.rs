@@ -14,9 +14,12 @@ use super::*;
 
 #[path = "touch_select.rs"]
 mod touch_select;
+#[path = "touch_press.rs"]
+mod touch_press;
 use crate::{GesturePhase, MagnifyEvent};
 
-/// How far (points) a finger travels before its touch is a drag or a pan, not a tap.
+/// How far (points) a finger travels before its touch is a drag or a pan, not a tap, unless the
+/// host says (`Runtime::set_touch_slop`): Android's `ViewConfiguration.TOUCH_SLOP`.
 const TOUCH_SLOP: f32 = 8.0;
 /// A finger held this long (seconds) before lifting throws nothing.
 const FLING_HOLD: f64 = 0.1;
@@ -42,6 +45,13 @@ pub(super) struct Touch {
     /// The host's long-press time in seconds (`Runtime::set_long_press_timeout`), else
     /// `touch_select::LONG_PRESS`.
     long_press: Option<f64>,
+    /// The host's tap timeout and touch slop (`touch_press.rs`).
+    tap_timeout: Option<f64>,
+    slop: Option<f32>,
+    /// When the finger's press shows (`touch_press.rs`); infinite: never.
+    press_due: Option<f64>,
+    /// A finger is lifting: what its release moves shows no hover.
+    lifting: bool,
 }
 
 /// Two fingers pinching: where each is, and their distance at the last event.
@@ -77,6 +87,8 @@ struct Finger {
     horizontal: bool,
     /// The element whose swipe the finger is, once it is one.
     swipe: Option<String>,
+    /// The element that heard the finger land (`El::on_swipe_touch`), until it swipes or lifts.
+    touched: Option<String>,
     /// Selecting, how far the finger is from the point it moves (a handle is held below the
     /// line it moves along).
     grab: (f32, f32),
@@ -127,6 +139,7 @@ impl<S: 'static> Runtime<S> {
             self.touch.long_due = None;
             self.touch_scroll_end(first.scroll, 0.0);
             if let Some(path) = &first.swipe { self.swipe_event(path, Phase::Up, first.at_point.0, first.at_point.1, first.origin, 0.0, true); }
+            if let Some(path) = first.touched { self.queue.push(Action::SwipeTouch(path, false)); }
             self.cancel_pointer();
             self.pointer_leave();
             let pinch = Pinch { fingers: [(first.id, first.at_point), (id, (x, y))], distance: 0.0 };
@@ -138,13 +151,16 @@ impl<S: 'static> Runtime<S> {
         }
         if self.touch.finger.is_some() { return; }
         if let Some(grab) = self.take_handle(x, y) {
-            self.touch.finger = Some(Finger { id, origin: (x, y), at_point: (x, y), last: 0.0, at: time, velocity: 0.0, mode: Mode::Select, scroll: None, horizontal: false, swipe: None, grab });
+            self.touch.finger = Some(Finger { id, origin: (x, y), at_point: (x, y), last: 0.0, at: time, velocity: 0.0, mode: Mode::Select, scroll: None, horizontal: false, swipe: None, touched: None, grab });
             return;
         }
         let scroll = self.touch_scroll_start(x, y);
         self.pointer_move(x, y);
         self.pointer_down(x, y);
-        self.touch.finger = Some(Finger { id, origin: (x, y), at_point: (x, y), last: 0.0, at: time, velocity: 0.0, mode: Mode::Pending, scroll, horizontal: false, swipe: None, grab: (0.0, 0.0) });
+        let touched = self.swipe_touched(x, y);
+        if let Some(path) = &touched { self.queue.push(Action::SwipeTouch(path.clone(), true)); }
+        self.hold_back_press(x, y, scroll);
+        self.touch.finger = Some(Finger { id, origin: (x, y), at_point: (x, y), last: 0.0, at: time, velocity: 0.0, mode: Mode::Pending, scroll, horizontal: false, swipe: None, touched, grab: (0.0, 0.0) });
         self.arm_long_press();
     }
 
@@ -167,10 +183,13 @@ impl<S: 'static> Runtime<S> {
         // A host that hands over touches faster than it draws frames may not have drawn one since
         // the long press came due: it is due by the clock, not by the frame.
         self.fire_long_press();
+        self.fire_press_due();
+        let slop = self.touch_slop();
         let Some(f) = self.touch.finger.as_ref().filter(|f| f.id == id) else { return };
         let (dx, dy) = (x - f.origin.0, y - f.origin.1);
-        if f.mode == Mode::Pending && dx.hypot(dy) > TOUCH_SLOP {
+        if f.mode == Mode::Pending && dx.hypot(dy) > slop {
             let (origin, scroll) = (f.origin, f.scroll);
+            self.press_never_shows();
             // Past the slop it is a drag or a pan for good: no long press is still to come, and
             // the selection its press began (a pointer's drag selects) is not a finger's to extend.
             self.touch.long_due = None;
@@ -181,7 +200,7 @@ impl<S: 'static> Runtime<S> {
                 self.cancel_pointer();
                 self.swipe_event(&path, Phase::Down, origin.0, origin.1, origin, 0.0, false);
                 let f = self.touch.finger.as_mut().unwrap();
-                (f.scroll, f.horizontal, f.mode, f.swipe) = (None, true, Mode::Swipe, Some(path));
+                (f.scroll, f.horizontal, f.mode, f.swipe, f.touched) = (None, true, Mode::Swipe, Some(path), None);
             } else {
                 let (scroll, horizontal) = if self.press_drags() { (None, false) } else { self.touch_scroll_pan(origin.0, origin.1, dx.abs() > dy.abs(), scroll) };
                 let f = self.touch.finger.as_mut().unwrap();
@@ -206,6 +225,13 @@ impl<S: 'static> Runtime<S> {
     }
 
     fn touch_up(&mut self, id: u64, x: f32, y: f32, time: f64, cancelled: bool) {
+        self.touch.lifting = true;
+        self.touch_lift(id, x, y, time, cancelled);
+        self.touch.lifting = false;
+        if self.touch.finger.is_none() { self.touch.press_due = None; }
+    }
+
+    fn touch_lift(&mut self, id: u64, x: f32, y: f32, time: f64, cancelled: bool) {
         if let Some(pinch) = self.touch.pinch.take_if(|p| p.fingers.iter().any(|(f, _)| *f == id)) {
             // Either finger lifting ends it; the other presses nothing when it lifts.
             let (mx, my) = pinch.middle();
@@ -216,11 +242,13 @@ impl<S: 'static> Runtime<S> {
             self.fire_long_press();
             // A lift somewhere the finger was never reported (a host too busy to hand over its
             // moves) is a move there first: a pan the whole way, not a press released far off.
-            let far = |f: &Finger| f.mode == Mode::Pending && (x - f.origin.0).hypot(y - f.origin.1) > TOUCH_SLOP;
+            let slop = self.touch_slop();
+            let far = |f: &Finger| f.mode == Mode::Pending && (x - f.origin.0).hypot(y - f.origin.1) > slop;
             if self.touch.finger.as_ref().is_some_and(far) { self.touch_move(id, x, y, time); }
         }
-        let Some(f) = self.touch.finger.take_if(|f| f.id == id) else { return };
+        let Some(mut f) = self.touch.finger.take_if(|f| f.id == id) else { return };
         self.touch.long_due = None;
+        if let Some(path) = f.touched.take() { self.queue.push(Action::SwipeTouch(path, false)); }
         if f.mode == Mode::Held {
             // The menu it opened stays; the press was let go when it opened.
             self.pointer_leave();
@@ -246,6 +274,7 @@ impl<S: 'static> Runtime<S> {
         // A pan cancelled the press, so its release clicks nothing.
         let (x, y) = if pan { f.origin } else { (x, y) };
         if f.mode == Mode::Drag { self.pointer_move(x, y); }
+        if f.mode == Mode::Pending { self.flash_held_back_press(); }
         self.pointer_up(x, y);
         // No hover is left under a lifted finger.
         self.pointer_leave();
@@ -258,11 +287,22 @@ impl<S: 'static> Runtime<S> {
         if dx.abs() <= dy.abs() || self.press_drags() || self.input_click.captured { return None; }
         let sideways = self.scroll_at_axis(x, y, true).and_then(|id| self.scrolls.get(&id)).is_some_and(|st| st.x.max > 0.5);
         if sideways { return None; }
+        self.swipe_under(x, y).map(|i| self.nodes[i].path.clone())
+    }
+
+    /// The innermost live element with a swipe under (x, y).
+    fn swipe_under(&self, x: f32, y: f32) -> Option<usize> {
         let hit = self.hits.iter().rev().find(|&&(id, r)| self.hit_contains(id, r, x, y)).and_then(|(id, _)| self.node_index.get(id).copied());
         std::iter::successors(hit, |&i| self.nodes[i].parent)
             .take_while(|&i| !self.subtree_exiting(i) && self.allowed(i))
             .find(|&i| self.nodes[i].handlers.on_swipe.is_some())
-            .map(|i| self.nodes[i].path.clone())
+    }
+
+    /// The swipe that hears a finger land at (x, y) (`El::on_swipe_touch`), unless what the
+    /// finger pressed drags itself.
+    fn swipe_touched(&self, x: f32, y: f32) -> Option<String> {
+        if self.press_drags() { return None; }
+        self.swipe_under(x, y).filter(|&i| self.nodes[i].handlers.on_swipe_touch.is_some()).map(|i| self.nodes[i].path.clone())
     }
 
     /// Tell the swipe's element where the finger is.

@@ -31,6 +31,7 @@ impl<S: 'static> Runtime<S> {
             Action::Drag(p, ..) | Action::DragRepeat(p, ..) => ("on_drag", 2, Some(p)),
             Action::DragEnd(p, _) => ("on_drag_end", 2, Some(p)),
             Action::Swipe(p, _) => ("on_swipe", 2, Some(p)),
+            Action::SwipeTouch(p, _) => ("on_swipe_touch", 2, Some(p)),
             Action::Wheel(_, chain, _) => ("on_wheel", 2, chain.first().map(String::as_str)),
             Action::Gesture(chain, _) => ("gesture", 2, chain.first().map(String::as_str)),
             Action::Hover(p) => ("on_hover", 1, Some(p)),

@@ -304,7 +304,8 @@ impl<S: 'static> Runtime<S> {
         // A held press stays hovered while it's inside, though a press scale shrank the drawn
         // rect away from the pointer. A group stays hovered while a descendant holds the press.
         let shadowed = alone.is_some_and(|a| a != i && holds(&n.path, &self.nodes[a].path));
-        let on = allowed && (inside || held) && !shadowed && captured.is_none_or(|p| holds(&n.path, p));
+        // A finger never hovers (`touch_press.rs`).
+        let on = allowed && (inside || held) && !shadowed && captured.is_none_or(|p| holds(&n.path, p)) && !self.finger_pointer();
         // Like a native sidebar or menu: the highlight lands with the pointer and fades
         // briefly as it leaves.
         let anim = match n.hover_motion() {
@@ -347,7 +348,8 @@ impl<S: 'static> Runtime<S> {
             } else {
                 self.capture_inside
             };
-            let down = self.allowed(i) && captured == Some(n.path.as_str()) && capture_inside;
+            // A finger's press inside a scroll or swipe shows after the tap timeout (`touch_press.rs`).
+            let down = self.allowed(i) && captured == Some(n.path.as_str()) && capture_inside && !self.press_held_back();
             let pressed = down && n.vis.press.a > 0.0;
             let id = n.id;
             changed |= self.scene.store().target(id, P_PRESS).unwrap_or(0.0) != pressed as u8 as f32;

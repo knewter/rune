@@ -295,6 +295,7 @@ fn same_handlers(
         gestures,
         on_drag,
         on_swipe,
+        on_swipe_touch,
         drag_out,
         drag_threshold,
         on_drag_start,
@@ -335,6 +336,7 @@ fn same_handlers(
         && same_gestures(&a.gestures, gestures)
         && opt_rc_eq(&a.on_drag, on_drag)
         && opt_rc_eq(&a.on_swipe, on_swipe)
+        && opt_rc_eq(&a.on_swipe_touch, on_swipe_touch)
         && opt_rc_eq(&a.drag_out, drag_out)
         && a.drag_threshold == *drag_threshold
         && opt_rc_eq(&a.on_drag_start, on_drag_start)

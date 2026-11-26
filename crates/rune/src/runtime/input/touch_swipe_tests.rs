@@ -10,6 +10,8 @@ struct S {
     /// Each swipe phase heard: (phase, dx, velocity, cancelled).
     swipes: Vec<(Phase, f32, f32, bool)>,
     drags: usize,
+    /// Each `on_swipe_touch` heard.
+    touches: Vec<bool>,
 }
 
 /// A page that swipes, holding a vertical list of pressable rows, a sideways strip with room
@@ -127,4 +129,45 @@ fn a_second_finger_cancels_the_swipe() {
     rt.touch(2, TouchPhase::Started, 150.0, 300.0, 0.02);
     rt.frame(1.0 / 60.0);
     assert_eq!(rt.state.swipes.last().map(|s| (s.0, s.3)), Some((Phase::Up, true)));
+}
+
+/// A page that swipes and hears a finger land (`El::on_swipe_touch`), as a gallery whose
+/// picture is still settling stops it under the finger.
+fn touched_view(_: &S, _: &mut Cx<S>) -> El {
+    col().key("page").size(300.0, 500.0)
+        .on_swipe(|s: &mut S, d: &mut Drag, _| s.swipes.push((d.phase, d.dx, d.velocity, d.cancelled())))
+        .on_swipe_touch(|s: &mut S, down: bool, _| s.touches.push(down))
+        .child(el().key("row").w_full().h(40.0).on_press(|s: &mut S| s.taps.push(0)))
+        .child(el().key("knob").w_full().h(40.0).on_drag(|s: &mut S, _: &mut Drag, _| s.drags += 1))
+        .child(el().key("rest").w_full().h(420.0))
+}
+
+#[test]
+fn a_finger_landing_in_a_swipe_is_heard_before_it_moves() {
+    let mut rt = Runtime::new(S::default(), touched_view, (300.0, 500.0), Env::default());
+    rt.frame(0.0);
+    let (x, y) = rt.find("rest").unwrap();
+    rt.touch(1, TouchPhase::Started, x, y, 0.0);
+    rt.frame(1.0 / 60.0);
+    assert_eq!(rt.state.touches, [true], "heard at the touch, with no move");
+    assert!(rt.state.swipes.is_empty(), "not a swipe yet");
+    // Then it swipes as before, and the touch is not heard again.
+    rt.touch(1, TouchPhase::Moved, x - 40.0, y, 0.05);
+    rt.touch(1, TouchPhase::Ended, x - 40.0, y, 0.1);
+    rt.frame(1.0 / 60.0);
+    assert_eq!(rt.state.touches, [true], "a finger that swipes lifts as the swipe's Up");
+    assert_eq!(rt.state.swipes.first().map(|s| s.0), Some(Phase::Down));
+    // A finger on a row inside it is heard landing and lifting, and its tap still presses the row.
+    let (x, y) = rt.find("row").unwrap();
+    rt.touch(2, TouchPhase::Started, x, y, 1.0);
+    rt.touch(2, TouchPhase::Ended, x, y, 1.05);
+    rt.frame(1.0 / 60.0);
+    assert_eq!(rt.state.touches, [true, true, false]);
+    assert_eq!(rt.state.taps, [0]);
+    // What drags itself takes the finger: the swipe hears nothing of it.
+    let (x, y) = rt.find("knob").unwrap();
+    rt.touch(3, TouchPhase::Started, x, y, 2.0);
+    rt.touch(3, TouchPhase::Ended, x, y, 2.05);
+    rt.frame(1.0 / 60.0);
+    assert_eq!(rt.state.touches, [true, true, false], "a knob that drags is not the swipe's");
 }
